@@ -33,6 +33,33 @@ bash gradlew -p desktop check installDist
 ./desktop/build/install/scrcpy-desktop/bin/scrcpy-desktop
 ```
 
+## Building Android APKs on Linux
+
+Run `./build.sh` to prepare the Android SDK and build debug APKs. The script
+downloads verified Android command-line tools if `sdkmanager` is missing,
+installs the platform, build-tools, NDK and CMake versions required by the
+project, and initializes the miuix submodule. Install Java first (JDK 21 is
+recommended); a fresh Linux x86_64 setup also needs `curl`, `unzip`, `sha256sum`
+and `git`.
+
+```sh
+./build.sh                                      # Review SDK license prompts
+./build.sh --accept-licenses                    # Accept licenses automatically
+./build.sh --accept-licenses clean assembleDebug -PabiList=arm64-v8a
+./build.sh --skip-sdk-setup assembleDebug --offline
+./build.sh --desktop                            # Desktop check + installDist
+```
+
+Use `--accept-licenses` only if you agree to the Android SDK license terms.
+License handling uses Google's documented
+[sdkmanager commands](https://developer.android.com/tools/sdkmanager).
+The SDK path comes from `local.properties` (`sdk.dir`), then `ANDROID_HOME` or
+`ANDROID_SDK_ROOT`, then an existing SDK in `~/Android/Sdk`, `~/Android` or
+`~/.android`. A fresh SDK defaults to `~/Android/Sdk`. Licenses and packages are
+installed into the same SDK that Gradle uses. Set `SDKMANAGER` to use a specific
+command-line tools executable. Subsequent runs reuse the installed packages.
+Debug APKs are written to `app/build/outputs/apk/debug/`.
+
 ## 截图
 
 <p align="center">
