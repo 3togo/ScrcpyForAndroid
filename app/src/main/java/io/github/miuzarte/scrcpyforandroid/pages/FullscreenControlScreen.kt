@@ -1,5 +1,10 @@
 package io.github.miuzarte.scrcpyforandroid.pages
 
+import io.github.miuzarte.scrcpyforandroid.phoneAspectRatio
+import io.github.miuzarte.scrcpyforandroid.isTelevision
+import io.github.miuzarte.scrcpyforandroid.StreamActivity
+import io.github.miuzarte.scrcpyforandroid.nativecore.NativeAdbService
+
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
@@ -629,6 +634,19 @@ fun FullscreenControlPage(
 ) {
     BackHandler(enabled = enableBackHandler, onBack = onDismiss)
 
+    val tvActivity = androidx.activity.compose.LocalActivity.current as? StreamActivity
+    val phoneMode = tvActivity?.usePhoneAspect?.collectAsState()?.value == true && tvActivity.isTelevision()
+    var phoneAspect by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(phoneMode, session.width, session.height) {
+        phoneAspect = null
+        if (phoneMode) {
+            try {
+                val dimensions = withContext(Dispatchers.IO) { NativeAdbService.shell("wm size") }
+                phoneAspect = phoneAspectRatio(dimensions, session.width, session.height)
+            } catch (error: kotlinx.coroutines.CancellationException) { throw error
+            } catch (_: Exception) { /* Keep the stream ratio when display information is unavailable. */ }
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
 
     var touchAreaSize by remember { mutableStateOf(IntSize.Zero) }
@@ -642,11 +660,12 @@ fun FullscreenControlPage(
     var activeTouchCount by remember { mutableIntStateOf(0) }
     var activeTouchDebug by remember { mutableStateOf("") }
 
-    val touchEventHandler = remember(session, touchAreaSize) {
+    val touchEventHandler = remember(session, touchAreaSize, phoneMode, phoneAspect) {
         TouchEventHandler(
             coroutineScope = coroutineScope,
             session = session,
             touchAreaSize = touchAreaSize,
+            displayAspect = if (phoneMode) phoneAspect else null,
             activePointerIds = activePointerIds,
             activePointerPositions = activePointerPositions,
             activePointerDevicePositions = activePointerDevicePositions,
@@ -698,9 +717,9 @@ fun FullscreenControlPage(
                 }
             },
     ) {
-        val sessionAspect =
-            if (session.height == 0) 16f / 9f
-            else session.width.toFloat() / session.height.toFloat()
+        val sessionAspect = (if (phoneMode) phoneAspect else null) ?:
+            (if (session.height == 0) 16f / 9f
+            else session.width.toFloat() / session.height.toFloat())
 
         Box(
             modifier = Modifier

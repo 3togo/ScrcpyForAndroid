@@ -41,6 +41,7 @@ class TouchEventHandler(
     private val onActiveTouchCountChanged: (Int) -> Unit,
     private val onActiveTouchDebugChanged: (String) -> Unit,
     private val onNextPointerLabelChanged: (Int) -> Unit,
+    private val displayAspect: Float? = null,
 ) {
     companion object {
         private const val FULLSCREEN_TOUCH_LOG_TAG = "FullscreenTouch"
@@ -106,7 +107,7 @@ class TouchEventHandler(
     )
 
     private fun calculateContentBounds(): ContentBounds {
-        val sessionAspect = if (session.height == 0) {
+        val sessionAspect = displayAspect ?: if (session.height == 0) {
             16f / 9f
         } else {
             session.width.toFloat() / session.height.toFloat()

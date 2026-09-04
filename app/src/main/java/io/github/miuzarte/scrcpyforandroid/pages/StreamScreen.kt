@@ -1,6 +1,7 @@
 package io.github.miuzarte.scrcpyforandroid.pages
 
 import android.content.pm.ActivityInfo
+import io.github.miuzarte.scrcpyforandroid.isTelevision
 import android.graphics.Rect
 import android.util.Rational
 import androidx.activity.compose.LocalActivity
@@ -43,6 +44,7 @@ fun StreamScreen(activity: StreamActivity) {
         activity, isInPip,
         currentSession?.width, currentSession?.height,
     ) {
+        if (activity.isTelevision()) return@LaunchedEffect
         val session = currentSession ?: return@LaunchedEffect
 
         val isLandscape = session.width >= session.height
@@ -157,7 +159,8 @@ fun FullscreenControlRoute(
         onVideoSizeChanged = { width, height ->
             if (!isInPip) {
                 activity?.requestedOrientation =
-                    fullscreenRequestedOrientation(
+                    if (activity?.isTelevision() == true) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    else fullscreenRequestedOrientation(
                         width = width,
                         height = height,
                         ignoreSystemRotationLock = asBundle.fullscreenControlIgnoreSystemRotationLock,
