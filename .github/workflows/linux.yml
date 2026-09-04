@@ -24,8 +24,12 @@ jobs:
         run: bash gradlew -p desktop check installDist distTar
       - name: Desktop window smoke test
         run: xvfb-run -a bash gradlew -p desktop guiSmoke
+      - name: Package Debian installer
+        run: bash desktop/package-deb.sh --skip-build --no-install
       - uses: actions/upload-artifact@v4
         with:
           name: scrcpy-linux-desktop
-          path: desktop/build/distributions/*.tar
+          path: |
+            desktop/build/distributions/*.tar
+            desktop/build/distributions/*.deb
           if-no-files-found: error

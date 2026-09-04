@@ -45,6 +45,39 @@ Extract `desktop/build/distributions/scrcpy-desktop-0.5.5.tar` and run
 `bin/scrcpy-desktop` inside the extracted directory. Java, adb, and scrcpy are
 runtime prerequisites; the archive does not bundle them.
 
+### Debian / Ubuntu package
+
+With a JDK 17 and `dpkg-deb` installed, run from the repository root:
+
+```sh
+./desktop/package-deb.sh
+```
+
+The script runs the desktop checks and builds the application before packaging.
+No root privileges are needed to build. In an interactive terminal, the script
+asks permission before running `sudo apt install` (or `apt install` as root).
+Answering yes installs or updates the generated package and lets apt resolve any
+missing runtime dependencies. Enter, no, or end-of-input skips installation;
+the built package remains available. Non-interactive runs never install anything.
+Use `--no-install` to suppress the prompt, or install later with:
+
+```sh
+sudo apt install ./desktop/build/distributions/scrcpy-desktop_0.5.5-1_all.deb
+```
+
+The package installs an application-menu
+entry, icon, and `scrcpy-desktop` command. It bundles the Java libraries and
+declares dependencies on a graphical Java 17+ runtime, adb, and scrcpy 3.0+.
+Your configured apt repositories must provide those dependencies; an unmanaged
+scrcpy installation in `/usr/local` does not satisfy apt's dependency tracking.
+
+Use `--skip-build` to package an existing `installDist`, or `--output-dir DIR`
+to choose another output directory. Gradle flags follow `--`, for example
+`./desktop/package-deb.sh -- --offline --no-daemon`. `DEB_VERSION` overrides the
+default application version plus `-1`; `DEB_MAINTAINER='Name <email>'` replaces
+the default local-builder identity. `GRADLE` may select a Gradle executable.
+Run `./desktop/package-deb.sh --help` for all options.
+
 ## Connecting
 
 - **QR pairing (Android 11+):** click **Pair with QR…** on the desktop. On the
