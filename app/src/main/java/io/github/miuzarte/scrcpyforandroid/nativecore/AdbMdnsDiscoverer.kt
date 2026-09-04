@@ -45,10 +45,18 @@ internal object AdbMdnsDiscoverer {
         return discoverService(TLS_PAIRING, timeoutMs, includeLanDevices)
     }
 
+    fun discoverQrService(name: String, timeoutMs: Long): Pair<String, Int>? =
+        discoverService(TLS_PAIRING, timeoutMs, true, expectedName = name)
+
+    fun discoverConnectForHost(host: String, timeoutMs: Long): Pair<String, Int>? =
+        discoverService(TLS_CONNECT, timeoutMs, true, expectedHost = host)
+
     private fun discoverService(
         serviceType: String,
         timeoutMs: Long,
         includeLanDevices: Boolean,
+        expectedName: String? = null,
+        expectedHost: String? = null,
     ): Pair<String, Int>? {
         check(::nsdManager.isInitialized) { "AdbMdnsDiscoverer is not initialized" }
         val resultPort = AtomicInteger(-1)
@@ -79,6 +87,7 @@ internal object AdbMdnsDiscoverer {
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (discoveryFinished.get()) return
                 Log.v(TAG, "service found: ${serviceInfo.serviceName}")
+                if (expectedName != null && !matchesAdbServiceName(serviceInfo.serviceName, expectedName)) return
                 val resolveListener = object: NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                         Log.v(TAG, "resolve failed: ${serviceInfo.serviceName}, error=$errorCode")
@@ -88,6 +97,7 @@ internal object AdbMdnsDiscoverer {
                         if (discoveryFinished.get()) return
                         val hostAddress = resolvedHostAddress(serviceInfo) ?: return
                         if (hostAddress.isBlank()) return
+                        if (expectedHost != null && hostAddress != expectedHost) return
 
                         if (!includeLanDevices) {
                             val isLocalHost = runCatching {
@@ -121,8 +131,12 @@ internal object AdbMdnsDiscoverer {
         }
 
         nsdManager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
-        latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+        try {
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        } finally {
+            discoveryFinished.set(true)
+            runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+        }
 
         val port = resultPort.get()
         val host = resultHost.get()

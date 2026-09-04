@@ -42,6 +42,11 @@ class MainActivity: FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (isTelevision()) {
+            startActivity(android.content.Intent(this, TvActivity::class.java))
+            finish()
+            return
+        }
         applyMainOrientationPolicy()
 
         // no logEvent before context init

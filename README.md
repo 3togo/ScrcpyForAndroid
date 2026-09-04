@@ -21,6 +21,18 @@
 
 \> [releases](https://github.com/Miuzarte/ScrcpyForAndroid/releases)
 
+## Linux desktop
+
+A Linux desktop frontend is available in `desktop/`, with USB/wireless device
+selection, pairing, mirroring, recording, and file transfers using native adb and
+scrcpy. It requires Java 17+, adb, and scrcpy. See [Linux setup and usage](doc/LINUX.md)
+for requirements and current feature scope.
+
+```sh
+bash gradlew -p desktop check installDist
+./desktop/build/install/scrcpy-desktop/bin/scrcpy-desktop
+```
+
 ## 截图
 
 <p align="center">

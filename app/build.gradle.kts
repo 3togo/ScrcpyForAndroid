@@ -87,6 +87,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Install the test receiver alongside the upstream signed release.
+            applicationIdSuffix = ".tvdebug"
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
@@ -138,6 +142,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation("com.google.zxing:core:3.5.3")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
