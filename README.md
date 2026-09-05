@@ -21,6 +21,22 @@
 
 \> [releases](https://github.com/Miuzarte/ScrcpyForAndroid/releases)
 
+## TV remote control
+
+During playback on Android TV / Google TV, press **Back** or **Menu** to open
+receiver controls. Navigation mode forwards arrows, OK, and playback keys to the
+phone. Select **Use pointer mode** for phone apps that need touch input:
+
+- Arrows move the cursor; holding an arrow moves faster. OK taps once.
+- To swipe, position the cursor, open the menu, and select **Start drag / swipe
+  at cursor**. Use arrows to drag, then OK to release.
+- Opening the menu releases a drag. The menu also provides phone Back, Home,
+  Recents, and Disconnect actions. Choose **Use navigation mode** to return to
+  direct key forwarding.
+
+The cursor follows the mirrored image in either picture-proportion setting.
+Input requires an active scrcpy control connection and phone debugging permissions.
+
 ## Linux desktop
 
 A Linux desktop frontend is available in `desktop/`, with USB/wireless device

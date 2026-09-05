@@ -58,12 +58,37 @@ class StreamActivity: FragmentActivity() {
         currentActivityRef = WeakReference(this)
         if (isTelevision()) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            lifecycleScope.launch {
-                for (event in tvKeys) {
-                    runCatching {
-                        AppRuntime.scrcpy?.injectKeycode(
-                            event.action, event.keyCode, event.repeatCount, event.metaState,
-                        )
+            val scrcpy = AppRuntime.scrcpy
+            if (scrcpy != null) {
+                tvRemote = TvRemoteController(ScrcpyTvRemoteInput(scrcpy))
+                lifecycleScope.launch {
+                    try {
+                        for (command in tvCommands) {
+                            try {
+                                command(tvRemote!!)
+                            } catch (error: kotlinx.coroutines.CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                runCatching { tvRemote?.release() }
+                                android.util.Log.w("TvRemote", "Input failed", error)
+                                val now = android.os.SystemClock.elapsedRealtime()
+                                if (now - lastInputError > 3000) {
+                                    lastInputError = now
+                                    android.widget.Toast.makeText(this@StreamActivity,
+                                        R.string.tv_input_failed, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    } finally {
+                        withContext(NonCancellable) { runCatching { tvRemote?.release() } }
+                    }
+                }
+                lifecycleScope.launch {
+                    var previous: Pair<Int, Int>? = null
+                    scrcpy.currentSessionState.collect { session ->
+                        val size = session?.let { it.width to it.height }
+                        if (size != previous) enqueueTv { release() }
+                        previous = size
                     }
                 }
             }
@@ -109,9 +134,24 @@ class StreamActivity: FragmentActivity() {
     val usePhoneAspect = MutableStateFlow(false)
     private var aspectDialog: AlertDialog? = null
     private var tvMenu: AlertDialog? = null
-    private val tvKeys = Channel<KeyEvent>(
-        Channel.UNLIMITED,
-    )
+    var tvRemote: TvRemoteController? = null
+        private set
+    private var lastInputError = -3001L
+    private val tvCommands = Channel<suspend TvRemoteController.() -> Unit>(Channel.UNLIMITED)
+
+    private fun enqueueTv(command: suspend TvRemoteController.() -> Unit) {
+        if (tvRemote != null) tvCommands.trySend(command)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) enqueueTv { release() }
+    }
+
+    override fun onPause() {
+        enqueueTv { release() }
+        super.onPause()
+    }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (!isTelevision()) return super.dispatchKeyEvent(event)
@@ -121,7 +161,8 @@ class StreamActivity: FragmentActivity() {
             return true
         }
         if (code in TV_REMOTE_KEYS) {
-            tvKeys.trySend(KeyEvent(event))
+            val copy = KeyEvent(event)
+            enqueueTv { key(copy.action, copy.keyCode, copy.repeatCount, copy.metaState, copy.isCanceled) }
             return true
         }
         return super.dispatchKeyEvent(event)
@@ -129,15 +170,22 @@ class StreamActivity: FragmentActivity() {
 
     private fun showTvMenu() {
         if (tvMenu?.isShowing == true) return
+        enqueueTv { release() }
         tvMenu = AlertDialog.Builder(this)
             .setTitle(R.string.tv_playback_menu)
             .setItems(arrayOf(getString(R.string.tv_resume), getString(R.string.tv_phone_back),
-                getString(R.string.tv_disconnect), getString(R.string.tv_aspect_ratio))) { _, index ->
+                getString(R.string.tv_disconnect), getString(R.string.tv_aspect_ratio),
+                getString(if (tvRemote?.pointer?.value?.enabled == true) R.string.tv_navigation_mode else R.string.tv_pointer_mode),
+                getString(R.string.tv_start_drag), getString(R.string.tv_phone_home),
+                getString(R.string.tv_phone_recents))) { _, index ->
                 when (index) {
                     3 -> showAspectMenu()
+                    4 -> enqueueTv { setPointer(!pointer.value.enabled) }
+                    5 -> enqueueTv { toggleDrag() }
+                    6 -> enqueueTv { press(KeyEvent.KEYCODE_HOME) }
+                    7 -> enqueueTv { press(KeyEvent.KEYCODE_APP_SWITCH) }
                     1 -> {
-                        tvKeys.trySend(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
-                        tvKeys.trySend(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+                        enqueueTv { press(KeyEvent.KEYCODE_BACK) }
                     }
                     2 -> lifecycleScope.launch {
                         // Stopping publishes a null session and may finish this activity.
@@ -194,7 +242,7 @@ class StreamActivity: FragmentActivity() {
             ?.let { currentActivityRef = null }
         tvMenu?.dismiss()
         aspectDialog?.dismiss()
-        tvKeys.close()
+        tvCommands.close()
         AppScreenOn.unregister(window)
         unregisterPipActionReceiver()
         super.onDestroy()

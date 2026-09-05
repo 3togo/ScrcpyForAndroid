@@ -768,6 +768,29 @@ fun FullscreenControlPage(
                     )
                 },
             )
+            if (tvActivity?.isTelevision() == true) {
+                val pointer = tvActivity.tvRemote?.pointer?.collectAsState()?.value
+                if (pointer?.enabled == true) {
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                        val center = Offset(pointer.x * (size.width - 1), pointer.y * (size.height - 1))
+                        drawCircle(Color.Black, 11.dp.toPx(), center)
+                        drawCircle(if (pointer.dragging) Color.Yellow else Color.White,
+                            8.dp.toPx(), center)
+                        drawCircle(Color.Black, 2.dp.toPx(), center)
+                    }
+                }
+            }
+        }
+
+        if (tvActivity?.isTelevision() == true) {
+            val pointer = tvActivity.tvRemote?.pointer?.collectAsState()?.value
+            if (pointer?.enabled == true) Text(
+                text = stringResource(if (pointer.dragging) R.string.tv_drag_help else R.string.tv_pointer_help),
+                color = Color.White,
+                fontSize = 16.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                    .background(Color.Black.copy(alpha = .75f)).padding(8.dp),
+            )
         }
 
         if (showDebugInfo) Box(

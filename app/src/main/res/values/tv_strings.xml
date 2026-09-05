@@ -51,4 +51,12 @@
     <string name="tv_aspect_stream">Use video stream dimensions</string>
     <string name="tv_geometry_help">TV display check: the circle should be round and the square equally wide and tall. This pattern is drawn on the TV; the picture setting below only affects phone mirroring.</string>
     <string name="tv_geometry_description">A circle inside a square, drawn with equal pixel width and height.</string>
+    <string name="tv_pointer_mode">Use pointer mode</string>
+    <string name="tv_navigation_mode">Use navigation mode</string>
+    <string name="tv_start_drag">Start drag / swipe at cursor</string>
+    <string name="tv_phone_home">Send Home to phone</string>
+    <string name="tv_phone_recents">Send Recents to phone</string>
+    <string name="tv_pointer_help">Arrows move · OK taps · Back opens controls</string>
+    <string name="tv_drag_help">Dragging: arrows swipe · OK releases</string>
+    <string name="tv_input_failed">Could not send input to phone. Check phone debugging permissions or reconnect.</string>
 </resources>

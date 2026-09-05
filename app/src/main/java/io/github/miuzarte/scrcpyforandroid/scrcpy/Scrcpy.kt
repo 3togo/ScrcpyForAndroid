@@ -368,6 +368,8 @@ class Scrcpy(
         session.resizeDisplay(width, height)
     }
 
+    val isControlAvailable: Boolean get() = session.isControlAvailable
+
     suspend fun injectKeycode(
         action: Int,
         keycode: Int,
@@ -1007,6 +1009,8 @@ class Scrcpy(
 
         @Volatile
         private var controlChannelAlive: Boolean = false
+
+        val isControlAvailable: Boolean get() = controlChannelAlive
 
         private val videoConsumers = linkedSetOf<(VideoPacket) -> Unit>()
 
