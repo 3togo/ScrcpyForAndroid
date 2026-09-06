@@ -14,6 +14,8 @@ import java.util.prefs.Preferences;
 
 /** Linux device manager. scrcpy owns the separate video/input window. */
 public final class DesktopApp {
+    private record CropPlan(String crop, boolean stretchCroppedFrame) { }
+
     private final Backend backend = new Backend();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Preferences prefs = Preferences.userNodeForPackage(DesktopApp.class);
@@ -85,8 +87,11 @@ public final class DesktopApp {
         settings.add(new JLabel("Video bitrate (Mbps)")); settings.add(bitrate);
         settings.add(audio); settings.add(control);
         settings.add(fullscreen); settings.add(record);
-        try { fill.setSelectedItem(Backend.Fill.valueOf(prefs.get("fill", Backend.Fill.FIT.name()))); }
-        catch (IllegalArgumentException ignored) { fill.setSelectedItem(Backend.Fill.FIT); }
+        String savedFill = prefs.get("fill", Backend.Fill.CROP_LONG_EDGE.name());
+        // Migrate the original single crop option to the finalized default semantics.
+        if (savedFill.equals("CROP")) savedFill = Backend.Fill.CROP_LONG_EDGE.name();
+        try { fill.setSelectedItem(Backend.Fill.valueOf(savedFill)); }
+        catch (IllegalArgumentException ignored) { fill.setSelectedItem(Backend.Fill.CROP_LONG_EDGE); }
         fill.setEnabled(fullscreen.isSelected());
         fullscreen.addItemListener(e -> fill.setEnabled(fullscreen.isSelected()));
         settings.add(new JLabel("Fullscreen fill")); settings.add(fill);
@@ -282,11 +287,15 @@ public final class DesktopApp {
             updateActions();
             task("Starting mirroring", () -> {
                 try {
-                    String crop;
-                    if (ratioMode != AspectRatio.Ratio.DEVICE) crop = cropForRatio(serial, ratioMode, customRatioText);
-                    else if (fillMode == Backend.Fill.CROP && fullscreenOn) crop = cropForScreen(serial);
-                    else crop = "";
-                    Backend.Options options = new Backend.Options(sizeValue, fpsValue, bitrateValue, audioOn, controlOn, fullscreenOn, fillMode, crop, recording);
+                    boolean cropToFill = ratioMode == AspectRatio.Ratio.DEVICE
+                        && fillMode.cropsToFill() && fullscreenOn;
+                    CropPlan fillPlan = cropToFill ? cropForScreen(serial, fillMode) : new CropPlan("", false);
+                    String crop = ratioMode != AspectRatio.Ratio.DEVICE
+                        ? cropForRatio(serial, ratioMode, customRatioText)
+                        : fillPlan.crop();
+                    Backend.Options options = new Backend.Options(sizeValue, fpsValue, bitrateValue,
+                        audioOn, controlOn, fullscreenOn, fillMode, crop,
+                        fillPlan.stretchCroppedFrame(), recording);
                     launch(serial, options, true);
                 } finally { SwingUtilities.invokeLater(() -> { starting = false; updateActions(); }); }
             });
@@ -325,7 +334,8 @@ public final class DesktopApp {
                 SwingUtilities.invokeLater(this::updateActions);
                 if (rejected.get()) {
                     Backend.Options plain = new Backend.Options(options.size(), options.fps(), options.bitrate(),
-                        options.audio(), options.control(), options.fullscreen(), options.fill(), "", options.recording());
+                        options.audio(), options.control(), options.fullscreen(), options.fill(), "", false,
+                        options.recording());
                     launch(serial, plain, false);
                 }
             }
@@ -347,17 +357,27 @@ public final class DesktopApp {
             return "";
         }
     }
-    /** Crop rect filling a fullscreen window at the device's aspect ratio; "" when unavailable. */
-    private String cropForScreen(String serial) {
+    /** Crop rect for fullscreen plus whether scrcpy may safely stretch it without distortion. */
+    private CropPlan cropForScreen(String serial, Backend.Fill fillMode) {
         try {
             // -s is required: adb refuses "shell" commands when more than one device is connected.
             int[] natural = Backend.naturalSize(backend.adb("-s", serial, "shell", "wm", "size"));
             boolean landscape = Backend.landscape(backend.adb("-s", serial, "shell", "dumpsys", "display"));
             DisplayMode mode = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode();
-            return Backend.fillCrop(natural[0], natural[1], landscape, mode.getWidth(), mode.getHeight());
+            boolean monitorLandscape = mode.getWidth() >= mode.getHeight();
+            if (fillMode == Backend.Fill.CROP_SHORT_EDGE) {
+                return new CropPlan(
+                    Backend.coverCrop(natural[0], natural[1], landscape, mode.getWidth(), mode.getHeight()),
+                    true
+                );
+            }
+            return new CropPlan(
+                Backend.fillCrop(natural[0], natural[1], landscape, mode.getWidth(), mode.getHeight()),
+                landscape == monitorLandscape
+            );
         } catch (Exception ex) {
             append("Crop to fill unavailable (" + ex.getMessage() + "); using fit instead.");
-            return "";
+            return new CropPlan("", false);
         }
     }
     private void transfer(boolean push) {

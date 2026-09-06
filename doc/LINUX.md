@@ -118,6 +118,17 @@ manager also stops its child processes; it does not kill the shared adb server.
 **Disconnect** disconnects the selected network device, which also affects other
 adb clients using that connection.
 
+For fullscreen playback, **Crop to fill long edge** is the default fill mode.
+Both crop-to-fill choices preserve aspect ratio by first center-cropping the phone
+capture. **Crop to fill long edge** follows the phone orientation; when phone and
+monitor orientations differ, the remaining bars are retained so portrait input is
+never turned into landscape. **Crop to fill short edge** is an explicit cover mode:
+it may trim enough of the source to match the monitor orientation and then fills the
+whole desktop. The original **Crop** preference is migrated to the long-edge mode.
+**Fit** keeps the complete frame and may show black bars; **Stretch** fills without
+cropping and may distort the picture. A fixed **Aspect ratio** selection takes
+priority over fullscreen crop-to-fill and remains aspect-preserving.
+
 Enable **Record to file…** before starting to choose an MP4 or MKV destination.
 Recording ends with the stream. For native window shortcuts and recording details,
 see [scrcpy controls](https://github.com/Genymobile/scrcpy/blob/master/doc/control.md)

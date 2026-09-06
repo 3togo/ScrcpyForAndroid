@@ -24,17 +24,24 @@ public final class BackendTest {
         Files.writeString(fake, "#!/bin/sh\ncase \"$1\" in\npair) read code; [ \"$code\" = 123456 ] || exit 2; echo paired;;\nfail) echo failure; exit 7;;\nwait) exec sleep 20;;\n*) printf '%s\\n' \"$@\";;\nesac\n");
         fake.toFile().setExecutable(true);
         try (Backend backend = new Backend(fake.toString(), "/path with spaces/scrcpy")) {
-            var command = backend.streamCommand("serial;echo unsafe", new Backend.Options(1920, 60, 8, false, false, true, Backend.Fill.STRETCH, "", "/tmp/file with spaces.mkv"));
+            var command = backend.streamCommand("serial;echo unsafe", new Backend.Options(1920, 60, 8, false, false, true, Backend.Fill.STRETCH, "", false, "/tmp/file with spaces.mkv"));
             assert command.contains("--serial=serial;echo unsafe");
             assert command.contains("--record=/tmp/file with spaces.mkv");
             assert command.containsAll(List.of("--no-audio", "--no-control", "--fullscreen", "--render-fit=stretched"));
-            // A crop forces the aspect ratio and suppresses stretching.
-            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", "")).contains("--render-fit");
-            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
-            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.CROP, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
+            // A fixed aspect-ratio crop preserves its shape and suppresses stretching.
+            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", false, "")).contains("--render-fit");
+            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", false, "")).contains("--crop=1080:1920:0:240");
+            var cropLong = backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true,
+                Backend.Fill.CROP_LONG_EDGE, "1080:1920:0:240", true, ""));
+            assert cropLong.contains("--crop=1080:1920:0:240");
+            assert cropLong.contains("--render-fit=stretched");
+            var cropShort = backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true,
+                Backend.Fill.CROP_SHORT_EDGE, "1080:1920:0:240", true, ""));
+            assert cropShort.contains("--crop=1080:1920:0:240");
+            assert cropShort.contains("--render-fit=stretched");
             // Crop applies whether or not the window is fullscreen; stretch needs no crop.
-            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.CROP, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
-            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.STRETCH, "", "")).contains("--crop");
+            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.CROP_LONG_EDGE, "1080:1920:0:240", false, "")).contains("--crop=1080:1920:0:240");
+            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.STRETCH, "", false, "")).contains("--crop");
             assert backend.adb("echo", "a b", "$(touch nope)").equals("echo\na b\n$(touch nope)\n");
             char[] code = "123456".toCharArray();
             assert backend.pair("localhost:1234", code).contains("paired");
@@ -58,6 +65,10 @@ public final class BackendTest {
         assert Backend.fillCrop(1080, 2400, false, 3840, 2160).equals("1080:1920:0:240");
         assert Backend.fillCrop(1080, 2400, true, 2160, 3840).equals("1080:1920:0:240");
         assert Backend.fillCrop(1080, 2400, false, 2160, 3840).equals("1080:1920:0:240");
+        // Short-edge/cover fill may deliberately change the displayed orientation so the
+        // monitor is completely covered; long-edge fill above never does.
+        assert Backend.coverCrop(1080, 2400, false, 3840, 2160).equals("1080:608:0:896");
+        assert Backend.coverCrop(1080, 2400, true, 3840, 2160).equals("1080:1920:0:240");
         // Aspect-ratio targets flip with device orientation (3:4 / 9:16 for portrait).
         assert Backend.targetRatio(AspectRatio.Ratio.DEVICE, false, "") == 0.0;
         assert Backend.targetRatio(AspectRatio.Ratio.SQUARE, false, "") == 1.0;

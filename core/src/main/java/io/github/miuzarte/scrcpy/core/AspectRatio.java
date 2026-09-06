@@ -65,6 +65,16 @@ public final class AspectRatio {
     public static String cropForRatio(int naturalW, int naturalH, boolean landscape, double target) {
         double t = target > 0 ? target : (double) naturalW / naturalH;
         if ((t >= 1) != landscape) t = 1.0 / t;
+        return cropForOrientedRatio(naturalW, naturalH, landscape, t);
+    }
+
+    /** Crop to the exact displayed ratio, even when it changes portrait/landscape orientation. */
+    public static String cropForExactRatio(int naturalW, int naturalH, boolean landscape, double target) {
+        double t = target > 0 ? target : (double) naturalW / naturalH;
+        return cropForOrientedRatio(naturalW, naturalH, landscape, t);
+    }
+
+    private static String cropForOrientedRatio(int naturalW, int naturalH, boolean landscape, double t) {
         int cropW, cropH;
         if (landscape) { // rotation swaps the axes: crop height becomes the displayed width
             cropW = Math.min(naturalW, (int) Math.round(naturalH / t));
@@ -86,5 +96,10 @@ public final class AspectRatio {
     /** Crop rect matching a window aspect ratio, for fullscreen fit-to-fill. */
     public static String fillCrop(int naturalW, int naturalH, boolean landscape, int windowW, int windowH) {
         return cropForRatio(naturalW, naturalH, landscape, (double) windowW / windowH);
+    }
+
+    /** Crop to the receiver ratio for short-edge/cover fill. */
+    public static String coverCrop(int naturalW, int naturalH, boolean landscape, int windowW, int windowH) {
+        return cropForExactRatio(naturalW, naturalH, landscape, (double) windowW / windowH);
     }
 }

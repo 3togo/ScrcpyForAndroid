@@ -18,15 +18,20 @@ final class Backend implements AutoCloseable {
     }
     /** How the video is fitted to a fullscreen window. */
     enum Fill {
-        FIT("Fit (black bars)"), STRETCH("Stretch"), CROP("Crop to fill");
+        FIT("Fit (black bars)"),
+        STRETCH("Stretch"),
+        CROP_SHORT_EDGE("Crop to fill short edge"),
+        CROP_LONG_EDGE("Crop to fill long edge");
         private final String label;
         Fill(String label) { this.label = label; }
+        boolean cropsToFill() { return this == CROP_SHORT_EDGE || this == CROP_LONG_EDGE; }
         @Override public String toString() { return label; }
     }
     // Aspect-ratio / crop math (incl. the Ratio enum) is shared with the Android app
     // via the :core module (io.github.miuzarte.scrcpy.core.AspectRatio).
     record Options(int size, int fps, int bitrate, boolean audio, boolean control,
-                   boolean fullscreen, Fill fill, String crop, String recording) {
+                   boolean fullscreen, Fill fill, String crop, boolean stretchCroppedFrame,
+                   String recording) {
         Options {
             if (size < 0 || size > 16384 || fps < 1 || fps > 240 || bitrate < 1 || bitrate > 200)
                 throw new IllegalArgumentException("Invalid stream settings");
@@ -79,6 +84,9 @@ final class Backend implements AutoCloseable {
     static String fillCrop(int naturalW, int naturalH, boolean landscape, int windowW, int windowH) {
         return AspectRatio.fillCrop(naturalW, naturalH, landscape, windowW, windowH);
     }
+    static String coverCrop(int naturalW, int naturalH, boolean landscape, int windowW, int windowH) {
+        return AspectRatio.coverCrop(naturalW, naturalH, landscape, windowW, windowH);
+    }
     static double targetRatio(AspectRatio.Ratio mode, boolean landscape, String custom) {
         return AspectRatio.targetRatio(mode, landscape, custom);
     }
@@ -94,8 +102,11 @@ final class Backend implements AutoCloseable {
         boolean hasCrop = o.crop != null && !o.crop.isBlank();
         if (o.fullscreen) {
             args.add("--fullscreen");
-            // Stretch distorts the image; only use it when no aspect ratio is forced.
-            if (o.fill == Fill.STRETCH && !hasCrop) args.add("--render-fit=stretched");
+            // A fill crop is deliberately two-stage: crop to the monitor ratio first, then
+            // stretch that already-matching frame over the window. The latter cannot distort
+            // it, and avoids SDL reintroducing a one-pixel letterbox through rounding.
+            if ((o.fill == Fill.STRETCH && !hasCrop) || (o.stretchCroppedFrame && hasCrop))
+                args.add("--render-fit=stretched");
         }
         if (hasCrop) args.add("--crop=" + o.crop);
         if (!o.recording.isBlank()) args.add("--record=" + o.recording);
