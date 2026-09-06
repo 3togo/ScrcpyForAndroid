@@ -44,6 +44,13 @@ public final class AspectRatio {
         throw new IllegalArgumentException("Enter the aspect ratio as width:height, for example 21:9.");
     }
 
+    /** Orient a width/height target to match the current displayed source dimensions. */
+    public static double orientToSource(double target, int sourceW, int sourceH) {
+        if (!(target > 0) || sourceW <= 0 || sourceH <= 0) return target;
+        boolean sourceLandscape = sourceW >= sourceH;
+        return ((target >= 1) == sourceLandscape) ? target : 1.0 / target;
+    }
+
     /**
      * Crop rect matching a target width/height ratio. A non-positive target keeps the
      * device ratio. Cropping trims the source symmetrically (no distortion); scrcpy

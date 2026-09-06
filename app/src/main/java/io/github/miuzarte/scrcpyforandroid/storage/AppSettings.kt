@@ -163,7 +163,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         )
         val SHOW_FULLSCREEN_VIRTUAL_BUTTONS = Pair(
             booleanPreferencesKey("show_fullscreen_virtual_buttons"),
-            true,
+            false,
         )
         val FULLSCREEN_VIRTUAL_BUTTON_HEIGHT_DP = Pair(
             intPreferencesKey("fullscreen_virtual_button_height_dp"),

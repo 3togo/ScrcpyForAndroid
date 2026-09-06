@@ -220,8 +220,8 @@ data class ClientOptions(
     // var updateTerminalTitle: Boolean = true,
 
     // Client-side display options (not sent to the scrcpy server).
-    // How the mirrored video fits the render surface: "FIT" (letterbox), "STRETCH", "CROP".
-    var renderFit: String = "FIT",
+    // How the mirrored video fits the render surface: FIT, STRETCH, CROP, or LONG_EDGE.
+    var renderFit: String = "LONG_EDGE",
     // Target display aspect ratio (width/height) to crop the video to; 0.0 keeps the device ratio.
     var aspectRatio: Double = 0.0,
 ) {

@@ -6,6 +6,7 @@ import android.app.RemoteAction
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
@@ -15,11 +16,15 @@ import kotlinx.coroutines.withContext
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import io.github.miuzarte.scrcpyforandroid.nativecore.NativeAdbService
 import android.view.KeyEvent
+import android.view.View
 import android.app.AlertDialog
 import android.content.pm.ActivityInfo
 import kotlinx.coroutines.channels.Channel
 import androidx.core.app.PictureInPictureParamsCompat.Builder
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.pip.BasicPictureInPicture
 import androidx.fragment.app.FragmentActivity
 import io.github.miuzarte.scrcpyforandroid.pages.StreamScreen
@@ -53,6 +58,7 @@ class StreamActivity: FragmentActivity() {
     // 都会重建 activity
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enterImmersivePlayback()
         usePhoneAspect.value = getSharedPreferences("tv_connection", MODE_PRIVATE)
             .getBoolean("phone_aspect", true)
         currentActivityRef = WeakReference(this)
@@ -152,7 +158,39 @@ class StreamActivity: FragmentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus) enqueueTv { release() }
+        if (hasFocus && !isInPictureInPictureMode) enterImmersivePlayback()
+        else if (!hasFocus) enqueueTv { release() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isInPictureInPictureMode) enterImmersivePlayback()
+    }
+
+    /**
+     * Apply immersive mode before Compose measures the playback area, and reapply it whenever
+     * focus returns (for example after the keyboard, a dialog, or an orientation change).
+     */
+    private fun enterImmersivePlayback() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+
+        // Keep immersive-sticky behavior on older Android versions and OEM builds where the
+        // compat controller alone may leave the three-button navigation bar visible.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+        }
     }
 
     override fun onPause() {

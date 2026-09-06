@@ -290,7 +290,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         )
         val RENDER_FIT = Pair(
             stringPreferencesKey("render_fit"),
-            "FIT",
+            "LONG_EDGE",
         )
         val ASPECT_RATIO = Pair(
             stringPreferencesKey("aspect_ratio"),

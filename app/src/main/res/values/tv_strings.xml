@@ -67,4 +67,6 @@
     <string name="tv_reset_mappings">Reset mappings</string>
     <string name="tv_capture_phone_key">Press and release a spare remote button, such as a color or playback button. Its previous phone assignment will be replaced. Arrows, OK, Back, Menu, Home, and volume remain reserved. Back cancels. Mappings apply only during phone playback in this app.</string>
     <string name="tv_mapping_saved">%1$s assigned to %2$s</string>
+    <string name="tv_fullscreen_fill">Fullscreen fill: %1$s</string>
+    <string name="tv_video_ratio">Aspect ratio: %1$s</string>
 </resources>

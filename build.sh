@@ -266,7 +266,12 @@ install_apk() {
     while IFS= read -r serial; do
         [[ -n "$serial" ]] && device_count=$((device_count + 1))
     done <<<"$devices"
-    if ((device_count > 1)); then
+    if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+        printf "%s" "$devices" | grep -qx -- "$ANDROID_SERIAL" \
+            || die "ANDROID_SERIAL=$ANDROID_SERIAL is not connected."
+        log "Using device: $ANDROID_SERIAL"
+    fi
+    if ((device_count > 1)) && [[ -z "${ANDROID_SERIAL:-}" ]]; then
         if [[ ! -t 0 || ! -t 1 ]]; then
             die "More than one device connected; set ANDROID_SERIAL first: ${devices//$'\n'/ }"
         fi
@@ -325,7 +330,28 @@ install_apk() {
     fi
 
     log "Installing APK: $apk"
-    "${adb_cmd[@]}" install -r "$apk"
+    local install_output
+    if install_output="$("${adb_cmd[@]}" install -r "$apk" 2>&1)"; then
+        echo "$install_output"
+        return 0
+    fi
+    echo "$install_output"
+    if [[ "$install_output" == *INSTALL_FAILED_NO_MATCHING_ABIS* ]]; then
+        local universal
+        for universal in "${apks[@]}"; do
+            [[ ${universal##*/} == *universal* ]] || continue
+            log "No native libraries for this device in $apk; retrying with the universal APK."
+            "${adb_cmd[@]}" install -r "$universal" && return 0
+            break
+        done
+    fi
+    if [[ "$install_output" == *"User rejected permissions"* ]]; then
+        die "The device rejected the install: accept the install prompt on the device screen (or install over USB), then retry."
+    fi
+    if [[ "$install_output" == *INSTALL_FAILED_UPDATE_INCOMPATIBLE* ]]; then
+        die "The installed app was signed with a different key: uninstall it first, then retry."
+    fi
+    die "adb install failed for $apk."
 }
 
 # Deb-only runs need no Android SDK at all.
@@ -404,13 +430,24 @@ if ! "$skip_sdk_setup"; then
         sdkmanager="$tools_destination/bin/sdkmanager"
     fi
 
+    # Locally installed packages whose package.xml uses the newer repository2/04
+    # schema make cmdline-tools 20.x print, once per run:
+    #   "This version only understands SDK XML versions up to 3 but an SDK XML
+    #    file of version 4 was encountered. ..."
+    # That is an upstream sdklib limitation, not a build problem, so drop only
+    # that line. sed (rather than grep -v) keeps exit statuses usable: it always
+    # succeeds, so pipefail can still report a failing sdkmanager.
+    sdk_noise_filter='/This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered/d'
+
     run_sdkmanager() {
         if "$accept_licenses"; then
             # yes may get SIGPIPE after sdkmanager exits. Preserve sdkmanager's
             # exit code, rather than letting pipefail turn success into exit 141.
-            (set +o pipefail; yes | "$sdkmanager" "--sdk_root=$sdk_dir" "$@")
+            (set +o pipefail
+             yes | "$sdkmanager" "--sdk_root=$sdk_dir" "$@" 2>&1 | sed "$sdk_noise_filter"
+             exit "${PIPESTATUS[1]}")
         else
-            "$sdkmanager" "--sdk_root=$sdk_dir" "$@"
+            "$sdkmanager" "--sdk_root=$sdk_dir" "$@" 2>&1 | sed "$sdk_noise_filter"
         fi
     }
 
@@ -427,7 +464,7 @@ if ! "$skip_sdk_setup"; then
     [[ -n "$cmake_version" ]] || die "Cannot read the required CMake version."
 
     log "Checking available SDK packages"
-    "$sdkmanager" "--sdk_root=$sdk_dir" --list >"$temp_dir/packages.txt"
+    "$sdkmanager" "--sdk_root=$sdk_dir" --list 2>&1 | sed "$sdk_noise_filter" >"$temp_dir/packages.txt"
     # New SDKs use names such as android-37.0; older SDKs use android-36.
     platform_package=""
     for candidate in "platforms;android-$compile_sdk" "platforms;android-$compile_sdk.0"; do

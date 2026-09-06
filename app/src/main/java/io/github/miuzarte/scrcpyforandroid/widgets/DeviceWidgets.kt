@@ -972,13 +972,12 @@ fun ScrcpyVideoSurface(
         }
     }
 
-    LaunchedEffect(session?.width, session?.height, currentSurfaceView) {
-        val surfaceView = currentSurfaceView ?: return@LaunchedEffect
-        val currentSession = session ?: return@LaunchedEffect
-
-        if (currentSession.width > 0 && currentSession.height > 0) {
-            surfaceView.holder.setFixedSize(currentSession.width, currentSession.height)
-        }
+    LaunchedEffect(currentSurfaceView) {
+        // The decoder renders through an independent texture, so the display surface must
+        // follow the Compose layout. A fixed source/crop-sized buffer remains physically that
+        // size on some Android TV implementations instead of being scaled to the SurfaceView,
+        // leaving black borders around an otherwise correctly cropped frame.
+        currentSurfaceView?.holder?.setSizeFromLayout()
     }
 
     LaunchedEffect(imeRequestToken, currentSurfaceView) {

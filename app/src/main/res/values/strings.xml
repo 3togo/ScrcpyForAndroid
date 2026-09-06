@@ -507,7 +507,8 @@
     <string name="scrcpyopt_aspect_ratio_custom">Custom ratio (width:height or decimal)</string>
     <string name="scrcpyopt_render_fit_fit">Fit (letterbox)</string>
     <string name="scrcpyopt_render_fit_stretch">Stretch</string>
-    <string name="scrcpyopt_render_fit_crop">Crop to fill</string>
+    <string name="scrcpyopt_render_fit_crop">Crop to fill short edge</string>
+    <string name="scrcpyopt_render_fit_long_edge">Crop to fill long edge</string>
     <string name="scrcpyopt_disable_screensaver">Disable screensaver while scrcpy is running</string>
     <string name="scrcpyopt_disable_screensaver_note">Be aware of burn-in; this also affects picture-in-picture</string>
     <string name="scrcpyopt_kill_adb_on_close">Kill adb when scrcpy terminates</string>

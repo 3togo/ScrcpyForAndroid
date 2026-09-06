@@ -22,6 +22,7 @@ class TouchEventHandler(
     private val coroutineScope: CoroutineScope,
     private val session: Scrcpy.Session.SessionInfo,
     private val touchAreaSize: IntSize,
+    private val fitMode: String = "FIT",
     private val activePointerIds: LinkedHashSet<Int>,
     private val activePointerPositions: LinkedHashMap<Int, Offset>,
     private val activePointerDevicePositions: LinkedHashMap<Int, Pair<Int, Int>>,
@@ -114,17 +115,9 @@ class TouchEventHandler(
         }
         val containerWidth = touchAreaSize.width.toFloat()
         val containerHeight = touchAreaSize.height.toFloat()
-        val containerAspect = containerWidth / containerHeight
-
-        val contentWidth: Float
-        val contentHeight: Float
-        if (sessionAspect > containerAspect) {
-            contentWidth = containerWidth
-            contentHeight = containerWidth / sessionAspect
-        } else {
-            contentHeight = containerHeight
-            contentWidth = containerHeight * sessionAspect
-        }
+        val fitted = videoFitSize(fitMode, sessionAspect, containerWidth, containerHeight)
+        val contentWidth = fitted.width
+        val contentHeight = fitted.height
         val contentLeft = (containerWidth - contentWidth) / 2f
         val contentTop = (containerHeight - contentHeight) / 2f
 

@@ -31,9 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import io.github.miuzarte.scrcpyforandroid.NativeCoreFacade
 import io.github.miuzarte.scrcpyforandroid.R
@@ -42,6 +39,7 @@ import io.github.miuzarte.scrcpyforandroid.password.PasswordPickerPopupContent
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
 import io.github.miuzarte.scrcpyforandroid.scrcpy.TouchEventHandler
+import io.github.miuzarte.scrcpyforandroid.scrcpy.videoFitSize
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import io.github.miuzarte.scrcpyforandroid.services.LocalInputService
 import io.github.miuzarte.scrcpyforandroid.services.LocalSnackbarController
@@ -111,7 +109,8 @@ fun FullscreenControlScreen(
         (buttonItems.first + buttonItems.second).filter { it != VirtualButtonAction.MORE }
     }
     val fullscreenDebugInfo = asBundle.fullscreenDebugInfo
-    val showFullscreenVirtualButtons = asBundle.showFullscreenVirtualButtons
+    val tvReceiverMode = (activity as? StreamActivity)?.tvReceiverMode == true
+    val showFullscreenVirtualButtons = asBundle.showFullscreenVirtualButtons && !tvReceiverMode
     val fullscreenVirtualButtonHeight = asBundle.fullscreenVirtualButtonHeightDp.dp
     val fullscreenVirtualButtonDockSetting = remember(asBundle.fullscreenVirtualButtonDock) {
         AppSettings.FullscreenVirtualButtonDock.fromStoredValue(
@@ -215,26 +214,6 @@ fun FullscreenControlScreen(
     var showRecentTasksSheet by rememberSaveable { mutableStateOf(false) }
     var showAllAppsSheet by rememberSaveable { mutableStateOf(false) }
     var imeRequestToken by rememberSaveable { mutableIntStateOf(0) }
-
-    DisposableEffect(activity) {
-        val window = activity?.window
-        if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-        onDispose {
-            val restoreWindow = activity?.window
-            if (restoreWindow != null) {
-                WindowInsetsControllerCompat(restoreWindow, restoreWindow.decorView).show(
-                    WindowInsetsCompat.Type.systemBars(),
-                )
-                WindowCompat.setDecorFitsSystemWindows(restoreWindow, true)
-            }
-        }
-    }
 
     LaunchedEffect(currentSession?.width, currentSession?.height) {
         val session = currentSession ?: return@LaunchedEffect
@@ -443,7 +422,7 @@ fun FullscreenControlScreen(
                 )
             }
 
-            if (asBundle.showFullscreenFloatingButton && !isInPip) {
+            if (asBundle.showFullscreenFloatingButton && !isInPip && !tvReceiverMode) {
                 bar.FloatingBall(
                     actions = floatingActions,
                     modifier = Modifier.fillMaxSize(),
@@ -647,6 +626,10 @@ fun FullscreenControlPage(
         }
     }
     val coroutineScope = rememberCoroutineScope()
+    val renderFit by NativeCoreFacade.renderFitMode.collectAsState()
+    val cropSize by NativeCoreFacade.cropSize.collectAsState()
+    val cropWidth = cropSize.getOrNull(0) ?: 0
+    val cropHeight = cropSize.getOrNull(1) ?: 0
 
     var touchAreaSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -659,12 +642,15 @@ fun FullscreenControlPage(
     var activeTouchCount by remember { mutableIntStateOf(0) }
     var activeTouchDebug by remember { mutableStateOf("") }
 
-    val touchEventHandler = remember(session, touchAreaSize, phoneMode, phoneAspect) {
+    val touchEventHandler = remember(session, touchAreaSize, phoneMode, phoneAspect, renderFit, cropWidth, cropHeight) {
         TouchEventHandler(
             coroutineScope = coroutineScope,
             session = session,
             touchAreaSize = touchAreaSize,
-            displayAspect = if (phoneMode) phoneAspect else null,
+            fitMode = renderFit,
+            displayAspect = if (phoneMode) phoneAspect
+            else if (cropWidth > 0 && cropHeight > 0) cropWidth.toFloat() / cropHeight
+            else null,
             activePointerIds = activePointerIds,
             activePointerPositions = activePointerPositions,
             activePointerDevicePositions = activePointerDevicePositions,
@@ -716,23 +702,33 @@ fun FullscreenControlPage(
                 }
             },
     ) {
+        val containerAspect = maxWidth.value / maxHeight.value
+        LaunchedEffect(containerAspect) {
+            NativeCoreFacade.setDisplayAspectRatio(containerAspect.toDouble())
+        }
         val sessionAspect = (if (phoneMode) phoneAspect else null) ?:
             (if (session.height == 0) 16f / 9f
             else session.width.toFloat() / session.height.toFloat())
 
+        // Crop modes render into the complete receiver surface. The renderer selects the
+        // source rectangle inside that surface; using the transient pre-crop frame ratio here
+        // would first create a 1920x864 SurfaceView and leave permanent top/bottom borders.
+        val pictureAspect =
+            if (renderFit == "CROP" || renderFit == "LONG_EDGE") containerAspect
+            else if (cropWidth > 0 && cropHeight > 0) cropWidth.toFloat() / cropHeight
+            else sessionAspect
+        val videoSize = videoFitSize(
+            mode = renderFit,
+            pictureAspect = pictureAspect,
+            containerWidth = maxWidth.value,
+            containerHeight = maxHeight.value,
+        )
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
-                .then(
-                    if (sessionAspect > (maxWidth.value / maxHeight.value))
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(sessionAspect)
-                    else
-                        Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(sessionAspect),
-                ),
+                // requiredSize intentionally permits overflow for Fill short edge. Using
+                // fillMaxWidth/fillMaxHeight here lets parent constraints distort the box.
+                .requiredSize(videoSize.width.dp, videoSize.height.dp),
         ) {
             ScrcpyVideoSurface(
                 modifier = Modifier

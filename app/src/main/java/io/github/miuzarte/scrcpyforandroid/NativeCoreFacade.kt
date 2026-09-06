@@ -11,6 +11,8 @@ import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import io.github.miuzarte.scrcpyforandroid.storage.Storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -38,9 +40,23 @@ object NativeCoreFacade {
     private val renderer = PersistentVideoRenderer()
     private val controller = VideoDecoderController(renderer)
 
+    /**
+     * Current display "fullscreen fill" mode (FIT / STRETCH / CROP). The playback screen
+     * sizes the video box from it, because the video surface keeps the cropped source
+     * aspect and therefore cannot be filled by the renderer alone.
+     */
+    private val renderFitModeState = MutableStateFlow("LONG_EDGE")
+    val renderFitMode: StateFlow<String> get() = renderFitModeState
+
+    private val cropSizeState = MutableStateFlow(intArrayOf(0, 0))
+    val cropSize: StateFlow<IntArray> get() = cropSizeState
+
     init {
         // Feed decoded video frame size to the renderer so it can crop to a target aspect ratio.
-        addVideoSizeListener { width, height -> renderer.setVideoSize(width, height) }
+        addVideoSizeListener { width, height ->
+            renderer.setVideoSize(width, height)
+            cropSizeState.value = renderer.croppedSize()
+        }
     }
 
     @Volatile
@@ -165,11 +181,24 @@ object NativeCoreFacade {
     fun addVideoFpsListener(listener: (Float) -> Unit) = controller.addVideoFpsListener(listener)
     fun removeVideoFpsListener(listener: (Float) -> Unit) = controller.removeVideoFpsListener(listener)
 
-    /** Push the display "fullscreen fill" mode (FIT / STRETCH / CROP) to the renderer. */
-    fun setRenderFit(mode: String) = renderer.setFitMode(mode)
+    /** Push the display fit mode (FIT / STRETCH / CROP / LONG_EDGE) to the renderer. */
+    fun setRenderFit(mode: String) {
+        renderFitModeState.value = mode.uppercase()
+        renderer.setFitMode(mode)
+        cropSizeState.value = renderer.croppedSize()
+    }
 
     /** Push the target display aspect ratio (0.0 = device ratio) to the renderer. */
-    fun setAspectRatio(target: Double) = renderer.setAspectRatio(target)
+    fun setAspectRatio(target: Double) {
+        renderer.setAspectRatio(target)
+        cropSizeState.value = renderer.croppedSize()
+    }
+
+    /** Set the full receiver area ratio used by Device + crop-to-fill modes. */
+    fun setDisplayAspectRatio(aspect: Double) {
+        renderer.setDisplayAspectRatio(aspect)
+        cropSizeState.value = renderer.croppedSize()
+    }
 
     /**
      * Called by Scrcpy.kt when a session starts.
@@ -189,6 +218,11 @@ object NativeCoreFacade {
         isRestarting = false
         controller.releaseAll()
         controller.resetBootstrap()
+        // MediaCodec only reports an output-size callback when it differs from the configured
+        // size. Seed the renderer immediately or ordinary sessions remain at 0x0 and all
+        // source-crop transforms are skipped.
+        renderer.setVideoSize(session.width, session.height)
+        cropSizeState.value = renderer.croppedSize()
         if (activeSurfaceId != null || recordingSurfaceAttached) {
             // v4.0: width/height come from first video session packet, not from initial metadata
             if (session.width > 0 && session.height > 0) {
@@ -213,6 +247,8 @@ object NativeCoreFacade {
      * error snackbar.
      */
     fun onVideoSizeChanged(width: Int, height: Int) {
+        renderer.setVideoSize(width, height)
+        cropSizeState.value = renderer.croppedSize()
         lifecycleScope.launch {
             sessionLifecycleMutex.withLock {
                 if (isRestarting) return@withLock
@@ -241,6 +277,8 @@ object NativeCoreFacade {
      */
     suspend fun onScrcpySessionStopped() = sessionLifecycleMutex.withLock {
         controller.releaseAll()
+        renderer.setVideoSize(0, 0)
+        cropSizeState.value = intArrayOf(0, 0)
         scrcpyRef = null
         recordingSurfaceAttached = false
     }

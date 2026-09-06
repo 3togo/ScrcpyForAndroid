@@ -799,10 +799,11 @@ internal fun ScrcpyAllOptionsPage(
             .coerceAtLeast(0)
     }
 
-    val renderFitValues = rememberSaveable { listOf("FIT", "STRETCH", "CROP") }
+    val renderFitValues = rememberSaveable { listOf("FIT", "STRETCH", "LONG_EDGE", "CROP") }
     val renderFitLabels = listOf(
         stringResource(R.string.scrcpyopt_render_fit_fit),
         stringResource(R.string.scrcpyopt_render_fit_stretch),
+        stringResource(R.string.scrcpyopt_render_fit_long_edge),
         stringResource(R.string.scrcpyopt_render_fit_crop),
     )
     val renderFitIndex = rememberSaveable(soBundle.renderFit) {

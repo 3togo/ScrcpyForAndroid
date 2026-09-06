@@ -67,6 +67,10 @@ public final class BackendTest {
         assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.WIDE, true, "") - 16.0 / 9) < 1e-9;
         assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "21:9") - 21.0 / 9) < 1e-9;
         assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "1.78") - 1.78) < 1e-9;
+        // Android's renderer uses the same rule: presets follow the mirrored source,
+        // never the receiving screen, so portrait input cannot become a landscape crop.
+        assert Math.abs(AspectRatio.orientToSource(16.0 / 9, 1080, 2400) - 9.0 / 16) < 1e-9;
+        assert Math.abs(AspectRatio.orientToSource(16.0 / 9, 2400, 1080) - 16.0 / 9) < 1e-9;
         try { Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "bad"); throw new AssertionError("bad ratio accepted"); }
         catch (IllegalArgumentException expected) { }
         // cropForRatio keeps the requested ratio and stays within the screen, even boundaries.

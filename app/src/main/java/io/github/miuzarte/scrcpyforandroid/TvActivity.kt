@@ -28,6 +28,8 @@ import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.nativecore.NativeAdbService
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
+import io.github.miuzarte.scrcpyforandroid.scrcpy.ScrcpyAspectRatio
+import io.github.miuzarte.scrcpy.core.AspectRatio
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import io.github.miuzarte.scrcpyforandroid.services.AppScreenOn
 import io.github.miuzarte.scrcpyforandroid.services.DeviceAdbConnectionCoordinator
@@ -50,6 +52,12 @@ class TvActivity : FragmentActivity() {
     private var qrJob: Job? = null
     private var manualDialog: Dialog? = null
     private lateinit var audio: CheckBox
+    private lateinit var fill: Button
+    private lateinit var ratio: Button
+    private lateinit var ratioCustom: EditText
+    private val fillModes = listOf("FIT", "STRETCH", "CROP", "LONG_EDGE")
+    private var renderFit: String = "LONG_EDGE"
+    private var ratioIndex: Int = 0
     private val coordinator = DeviceAdbConnectionCoordinator()
     private val preferences by lazy { getSharedPreferences("tv_connection", MODE_PRIVATE) }
     private val scrcpy: Scrcpy get() = AppRuntime.scrcpy!!
@@ -86,6 +94,25 @@ class TvActivity : FragmentActivity() {
             setOnCheckedChangeListener { _, checked -> preferences.edit { putBoolean("audio", checked) } }
         }
         panel.addView(audio)
+        renderFit = preferences.getString("renderFit", "LONG_EDGE") ?: "LONG_EDGE"
+        ratioIndex = ScrcpyAspectRatio.presets
+            .indexOfFirst {
+                it.name == preferences.getString("aspectRatio", AspectRatio.Ratio.DEVICE.name)
+            }
+            .coerceAtLeast(0)
+        fill = button(R.string.tv_fullscreen_fill) { cycleFill() }
+        fill.text = fillLabel()
+        panel.addView(fill)
+        ratio = button(R.string.tv_video_ratio) { cycleRatio() }
+        ratio.text = ratioLabel()
+        panel.addView(ratio)
+        ratioCustom = field(R.string.scrcpyopt_aspect_ratio_custom,
+            preferences.getString("aspectRatioCustom", "") ?: "")
+        ratioCustom.inputType = InputType.TYPE_CLASS_TEXT
+        ratioCustom.visibility =
+            if (ScrcpyAspectRatio.presets[ratioIndex] == AspectRatio.Ratio.CUSTOM) View.VISIBLE
+            else View.GONE
+        panel.addView(ratioCustom)
         disconnect = button(R.string.tv_disconnect) {
             runOperation { disconnectSession(); status.setText(R.string.tv_disconnected) }
         }
@@ -94,13 +121,18 @@ class TvActivity : FragmentActivity() {
         status = label(R.string.tv_home_ready, 18f)
         panel.addView(status)
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.rgb(18, 27, 43)); addView(panel) })
-        linkFocus(listOf(qr, pair, connect, audio, disconnect).filter { it.visibility == View.VISIBLE })
-        qr.requestFocus()
+        linkFocus(focusOrder())
+        if (connect.visibility == View.VISIBLE) connect.requestFocus() else qr.requestFocus()
         onBackPressedDispatcher.addCallback(this) {
             if (scrcpy.isStarted()) runOperation {
                 disconnectSession()
                 finish()
             } else finish()
+        }
+        if (savedInstanceState == null && connect.visibility == View.VISIBLE) {
+            // A TV receiver normally belongs to one phone. Reconnect to the saved endpoint on
+            // launch; Back from playback still exposes this screen for pairing another phone.
+            panel.post { connect() }
         }
     }
 
@@ -136,6 +168,9 @@ class TvActivity : FragmentActivity() {
             putString("host", address)
             putString("port", number.toString())
             putBoolean("audio", audio.isChecked)
+            putString("renderFit", renderFit)
+            putString("aspectRatio", ScrcpyAspectRatio.presets[ratioIndex].name)
+            putString("aspectRatioCustom", ratioCustom.text.toString())
         }
         runOperation {
             status.setText(R.string.tv_connecting)
@@ -144,7 +179,12 @@ class TvActivity : FragmentActivity() {
                 coordinator.connectWithTimeout(address, number, 30_000)
                 AppRuntime.currentConnectionTarget = ConnectionTarget(address, number)
                 scrcpy.start(ClientOptions(maxSize = 1920u, videoBitRate = 8_000_000,
-                    audio = audio.isChecked, audioPlayback = audio.isChecked))
+                    audio = audio.isChecked, audioPlayback = audio.isChecked,
+                    renderFit = renderFit,
+                    aspectRatio = ScrcpyAspectRatio.targetRatioFromName(
+                        ScrcpyAspectRatio.presets[ratioIndex].name,
+                        ratioCustom.text.toString(),
+                    )))
                 AppScreenOn.acquire()
                 status.setText(R.string.tv_connected)
                 startActivity(StreamActivity.createIntent(this@TvActivity, tvReceiver = true))
@@ -160,6 +200,39 @@ class TvActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    private fun focusOrder() = listOf(qr, pair, connect, audio, fill, ratio, ratioCustom, disconnect)
+        .filter { it.visibility == View.VISIBLE }
+
+    private fun fillLabel(): String {
+        val label = when (renderFit) {
+            "STRETCH" -> getString(R.string.scrcpyopt_render_fit_stretch)
+            "CROP" -> getString(R.string.scrcpyopt_render_fit_crop)
+            "LONG_EDGE" -> getString(R.string.scrcpyopt_render_fit_long_edge)
+            else -> getString(R.string.scrcpyopt_render_fit_fit)
+        }
+        return getString(R.string.tv_fullscreen_fill, label)
+    }
+
+    private fun cycleFill() {
+        renderFit = fillModes[(fillModes.indexOf(renderFit).coerceAtLeast(0) + 1) % fillModes.size]
+        preferences.edit { putString("renderFit", renderFit) }
+        fill.text = fillLabel()
+        linkFocus(focusOrder())
+    }
+
+    private fun ratioLabel() =
+        getString(R.string.tv_video_ratio, ScrcpyAspectRatio.presets[ratioIndex].toString())
+
+    private fun cycleRatio() {
+        ratioIndex = (ratioIndex + 1) % ScrcpyAspectRatio.presets.size
+        preferences.edit { putString("aspectRatio", ScrcpyAspectRatio.presets[ratioIndex].name) }
+        ratio.text = ratioLabel()
+        ratioCustom.visibility =
+            if (ScrcpyAspectRatio.presets[ratioIndex] == AspectRatio.Ratio.CUSTOM) View.VISIBLE
+            else View.GONE
+        linkFocus(focusOrder())
     }
 
     private fun column() = LinearLayout(this).apply {
@@ -449,7 +522,7 @@ class TvActivity : FragmentActivity() {
         connect.visibility = if (host.text.isNotBlank()) View.VISIBLE else View.GONE
         connect.setText(if (scrcpy.isStarted()) R.string.tv_resume else R.string.tv_reconnect)
         disconnect.visibility = if (scrcpy.isStarted()) View.VISIBLE else View.GONE
-        linkFocus(listOf(qr, pair, connect, audio, disconnect).filter { it.visibility == View.VISIBLE })
+        linkFocus(focusOrder())
     }
 
     override fun onStop() {

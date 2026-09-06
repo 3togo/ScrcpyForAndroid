@@ -6,8 +6,9 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
+import io.github.miuzarte.scrcpy.core.AspectRatio
+import io.github.miuzarte.scrcpyforandroid.scrcpy.videoCrop
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.roundToInt
 
 /**
  * Decoder always renders into a persistent SurfaceTexture-backed Surface.
@@ -56,13 +57,16 @@ class PersistentVideoRenderer {
     private var texRectHandle = 0
 
     /** How the mirrored video is fitted into the render surface. */
-    private enum class Fit { FIT, STRETCH, CROP }
+    private enum class Fit { FIT, STRETCH, CROP, LONG_EDGE }
 
     @Volatile
-    private var fitMode = Fit.FIT
+    private var fitMode = Fit.LONG_EDGE
     /** Target display aspect ratio (width/height) to crop the video to; 0.0 keeps the device ratio. */
     @Volatile
     private var aspectTarget = 0.0
+    /** Receiver surface aspect ratio, used by both crop-to-fill modes in Device mode. */
+    @Volatile
+    private var displayAspect = 0.0
     /** Current decoded video frame size, used for aspect-ratio cropping. */
     @Volatile
     private var videoW = 0
@@ -237,11 +241,12 @@ class PersistentVideoRenderer {
         }
     }
 
-    /** Set how the video is fitted into the surface: FIT (letterbox), STRETCH, or CROP (cover). */
+    /** Set how the video is fitted into the surface. */
     fun setFitMode(mode: String) {
         fitMode = when (mode.uppercase()) {
             "STRETCH" -> Fit.STRETCH
             "CROP" -> Fit.CROP
+            "LONG_EDGE" -> Fit.LONG_EDGE
             else -> Fit.FIT
         }
         requestRedraw()
@@ -251,6 +256,37 @@ class PersistentVideoRenderer {
     fun setAspectRatio(target: Double) {
         aspectTarget = if (target.isFinite() && target > 0) target else 0.0
         requestRedraw()
+    }
+
+    fun setDisplayAspectRatio(aspect: Double) {
+        val valid = if (aspect.isFinite() && aspect > 0) aspect else 0.0
+        if (displayAspect == valid) return
+        displayAspect = valid
+        requestRedraw()
+    }
+
+    /**
+     * Visible source rectangle (sx, sy, sw, sh) in decoded-frame pixels for the current
+     * aspect-ratio target, centred. Returns the full frame when no target is set.
+     */
+    fun sourceCrop(): IntArray {
+        if (videoW <= 0 || videoH <= 0) return intArrayOf(0, 0, 0, 0)
+        val target = when {
+            aspectTarget > 0 -> aspectTarget
+            fitMode == Fit.CROP || fitMode == Fit.LONG_EDGE -> displayAspect
+            else -> 0.0
+        }
+        // Both explicit presets and the receiver ratio follow the mirrored source orientation.
+        // A landscape TV ratio therefore becomes portrait when the phone is portrait.
+        val oriented = AspectRatio.orientToSource(target, videoW, videoH)
+        val crop = videoCrop(videoW, videoH, oriented)
+        return intArrayOf(crop.x, crop.y, crop.width, crop.height)
+    }
+
+    /** Size (width, height) of [sourceCrop]; 0,0 while the frame size is unknown. */
+    fun croppedSize(): IntArray {
+        val crop = sourceCrop()
+        return intArrayOf(crop[2], crop[3])
     }
 
     /** Report the decoded video frame size; used to crop the source to the target aspect ratio. */
@@ -519,21 +555,16 @@ class PersistentVideoRenderer {
         if (videoW <= 0 || videoH <= 0) {
             return Transform(0f, 0f, 1f, 1f, mvpMatrix)
         }
-        // 1) Crop the source to the chosen aspect ratio (centered sub-rectangle).
-        val srcAspect = videoW.toDouble() / videoH
-        val (sw, sh, sx, sy) = if (aspectTarget > 0) {
-            // Orient the target ratio to the surface so e.g. "16:9" matches a landscape surface.
-            val oriented = if (surfaceW >= surfaceH) aspectTarget else 1.0 / aspectTarget
-            if (oriented >= srcAspect) {
-                val cropH = (videoW / oriented).roundToInt().coerceAtLeast(2).coerceAtMost(videoH)
-                listOf(videoW, cropH, 0, (videoH - cropH) / 2)
-            } else {
-                val cropW = (videoH * oriented).roundToInt().coerceAtLeast(2).coerceAtMost(videoW)
-                listOf(cropW, videoH, (videoW - cropW) / 2, 0)
-            }
-        } else {
-            listOf(videoW, videoH, 0, 0)
+        // 1) Crop the source to the chosen aspect ratio (centered sub-rectangle). The target
+        // follows the source orientation, so portrait video remains portrait.
+        val crop = sourceCrop()
+        if (crop[2] <= 0 || crop[3] <= 0) {
+            return Transform(0f, 0f, 1f, 1f, mvpMatrix)
         }
+        val sx = crop[0]
+        val sy = crop[1]
+        val sw = crop[2]
+        val sh = crop[3]
         val u0 = sx.toFloat() / videoW
         val v0 = sy.toFloat() / videoH
         val u1 = (sx + sw).toFloat() / videoW
@@ -550,6 +581,14 @@ class PersistentVideoRenderer {
             }
             Fit.CROP -> {
                 val s = maxOf(surfaceW.toFloat() / sw, surfaceH.toFloat() / sh)
+                val rw = sw * s
+                val rh = sh * s
+                listOf(rw, rh, (surfaceW - rw) / 2f, (surfaceH - rh) / 2f)
+            }
+            Fit.LONG_EDGE -> {
+                // Landscape fills horizontally; portrait fills vertically. This keeps the
+                // source aspect while letting its long dimension determine the scale.
+                val s = if (sw >= sh) surfaceW.toFloat() / sw else surfaceH.toFloat() / sh
                 val rw = sw * s
                 val rh = sh * s
                 listOf(rw, rh, (surfaceW - rw) / 2f, (surfaceH - rh) / 2f)
