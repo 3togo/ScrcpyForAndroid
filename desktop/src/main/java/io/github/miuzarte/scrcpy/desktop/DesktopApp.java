@@ -1,12 +1,15 @@
 package io.github.miuzarte.scrcpy.desktop;
 
 import javax.swing.*;
+import io.github.miuzarte.scrcpy.core.AspectRatio;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
+import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.prefs.Preferences;
 
 /** Linux device manager. scrcpy owns the separate video/input window. */
@@ -26,6 +29,9 @@ public final class DesktopApp {
     private final JCheckBox control = new JCheckBox("Keyboard and mouse", prefs.getBoolean("control", true));
     private final JCheckBox fullscreen = new JCheckBox("Fullscreen", prefs.getBoolean("fullscreen", false));
     private final JCheckBox record = new JCheckBox("Record to file…");
+    private final JComboBox<Backend.Fill> fill = new JComboBox<>(Backend.Fill.values());
+    private final JComboBox<AspectRatio.Ratio> ratio = new JComboBox<>(AspectRatio.Ratio.values());
+    private final JTextField customRatio = new JTextField(8);
     private final JButton start = new JButton("Start mirroring");
     private final JButton stop = new JButton("Stop mirroring");
     private final JLabel status = new JLabel("Ready");
@@ -79,6 +85,20 @@ public final class DesktopApp {
         settings.add(new JLabel("Video bitrate (Mbps)")); settings.add(bitrate);
         settings.add(audio); settings.add(control);
         settings.add(fullscreen); settings.add(record);
+        try { fill.setSelectedItem(Backend.Fill.valueOf(prefs.get("fill", Backend.Fill.FIT.name()))); }
+        catch (IllegalArgumentException ignored) { fill.setSelectedItem(Backend.Fill.FIT); }
+        fill.setEnabled(fullscreen.isSelected());
+        fullscreen.addItemListener(e -> fill.setEnabled(fullscreen.isSelected()));
+        settings.add(new JLabel("Fullscreen fill")); settings.add(fill);
+        try { ratio.setSelectedItem(AspectRatio.Ratio.valueOf(prefs.get("ratio", AspectRatio.Ratio.DEVICE.name()))); }
+        catch (IllegalArgumentException ignored) { ratio.setSelectedItem(AspectRatio.Ratio.DEVICE); }
+        customRatio.setText(prefs.get("ratioCustom", ""));
+        customRatio.setToolTipText("Aspect ratio as width:height, for example 21:9 or 1.78.");
+        customRatio.setEnabled(ratio.getSelectedItem() == AspectRatio.Ratio.CUSTOM);
+        ratio.addItemListener(e -> customRatio.setEnabled(ratio.getSelectedItem() == AspectRatio.Ratio.CUSTOM));
+        JPanel ratioRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+        ratioRow.add(ratio); ratioRow.add(customRatio);
+        settings.add(new JLabel("Aspect ratio")); settings.add(ratioRow);
         start.addActionListener(e -> mirror());
         stop.addActionListener(e -> backend.stop(stream));
         settings.add(start); settings.add(stop);
@@ -250,29 +270,95 @@ public final class DesktopApp {
                 output = path.toString();
             }
             size.commitEdit(); fps.commitEdit(); bitrate.commitEdit();
-            Backend.Options options = new Backend.Options((int) size.getValue(), (int) fps.getValue(), (int) bitrate.getValue(), audio.isSelected(), control.isSelected(), fullscreen.isSelected(), output);
+            int sizeValue = (int) size.getValue(), fpsValue = (int) fps.getValue(), bitrateValue = (int) bitrate.getValue();
+            boolean audioOn = audio.isSelected(), controlOn = control.isSelected(), fullscreenOn = fullscreen.isSelected();
+            Backend.Fill fillMode = (Backend.Fill) fill.getSelectedItem();
+            AspectRatio.Ratio ratioMode = (AspectRatio.Ratio) ratio.getSelectedItem();
+            String customRatioText = customRatio.getText().trim();
+            if (ratioMode == AspectRatio.Ratio.CUSTOM) Backend.parseRatio(customRatioText); // validate before starting
+            final String recording = output;
             save();
             starting = true;
             updateActions();
             task("Starting mirroring", () -> {
                 try {
-                    Process p = backend.start(backend.streamCommand(serial, options));
-                    stream = p;
-                    SwingUtilities.invokeLater(this::updateActions);
-                    Thread reader = new Thread(() -> {
-                        try { Backend.drain(p, this::append); append("Mirroring ended (exit " + p.waitFor() + ")."); }
-                        catch (Exception ex) { append("Mirroring: " + ex.getMessage()); }
-                        finally {
-                            backend.stop(p);
-                            stream = null;
-                            SwingUtilities.invokeLater(this::updateActions);
-                        }
-                    }, "scrcpy-output");
-                    reader.setDaemon(true);
-                    reader.start();
+                    String crop;
+                    if (ratioMode != AspectRatio.Ratio.DEVICE) crop = cropForRatio(serial, ratioMode, customRatioText);
+                    else if (fillMode == Backend.Fill.CROP && fullscreenOn) crop = cropForScreen(serial);
+                    else crop = "";
+                    Backend.Options options = new Backend.Options(sizeValue, fpsValue, bitrateValue, audioOn, controlOn, fullscreenOn, fillMode, crop, recording);
+                    launch(serial, options, true);
                 } finally { SwingUtilities.invokeLater(() -> { starting = false; updateActions(); }); }
             });
         } catch (Exception ex) { error(ex); }
+    }
+    /**
+     * Starts scrcpy. Several device encoders cannot encode a cropped capture at all:
+     * scrcpy logs "Capture/encoding error" and keeps retrying at ever smaller sizes,
+     * ending up with a tiny picture. A rejected crop is therefore retried once without
+     * cropping so mirroring still works.
+     */
+    private void launch(String serial, Backend.Options options, boolean retryWithoutCrop) {
+        List<String> command = backend.streamCommand(serial, options);
+        append("scrcpy " + String.join(" ", command.subList(1, command.size())));
+        Process p;
+        try { p = backend.start(command); }
+        catch (IOException ex) { append("Mirroring: " + ex.getMessage()); return; }
+        stream = p;
+        SwingUtilities.invokeLater(this::updateActions);
+        AtomicBoolean rejected = new AtomicBoolean();
+        Thread reader = new Thread(() -> {
+            try {
+                Backend.drain(p, line -> {
+                    append(line);
+                    if (retryWithoutCrop && !options.crop().isBlank() && line.contains("Capture/encoding error")
+                        && rejected.compareAndSet(false, true)) {
+                        append("This device's video encoder rejected the cropped capture; retrying without cropping.");
+                        backend.stop(p);
+                    }
+                });
+                append("Mirroring ended (exit " + p.waitFor() + ").");
+            } catch (Exception ex) { append("Mirroring: " + ex.getMessage()); }
+            finally {
+                backend.stop(p);
+                stream = null;
+                SwingUtilities.invokeLater(this::updateActions);
+                if (rejected.get()) {
+                    Backend.Options plain = new Backend.Options(options.size(), options.fps(), options.bitrate(),
+                        options.audio(), options.control(), options.fullscreen(), options.fill(), "", options.recording());
+                    launch(serial, plain, false);
+                }
+            }
+        }, "scrcpy-output");
+        reader.setDaemon(true);
+        reader.start();
+    }
+    /** Crop rect for a chosen aspect ratio; "" when unavailable or invalid. */
+    private String cropForRatio(String serial, AspectRatio.Ratio mode, String custom) {
+        try {
+            // -s is required: adb refuses "shell" commands when more than one device is connected.
+            int[] natural = Backend.naturalSize(backend.adb("-s", serial, "shell", "wm", "size"));
+            boolean landscape = Backend.landscape(backend.adb("-s", serial, "shell", "dumpsys", "display"));
+            double target = Backend.targetRatio(mode, landscape, custom);
+            if (target <= 0) return "";
+            return Backend.cropForRatio(natural[0], natural[1], landscape, target);
+        } catch (Exception ex) {
+            append("Aspect-ratio crop unavailable (" + ex.getMessage() + "); mirroring at the device ratio.");
+            return "";
+        }
+    }
+    /** Crop rect filling a fullscreen window at the device's aspect ratio; "" when unavailable. */
+    private String cropForScreen(String serial) {
+        try {
+            // -s is required: adb refuses "shell" commands when more than one device is connected.
+            int[] natural = Backend.naturalSize(backend.adb("-s", serial, "shell", "wm", "size"));
+            boolean landscape = Backend.landscape(backend.adb("-s", serial, "shell", "dumpsys", "display"));
+            DisplayMode mode = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode();
+            return Backend.fillCrop(natural[0], natural[1], landscape, mode.getWidth(), mode.getHeight());
+        } catch (Exception ex) {
+            append("Crop to fill unavailable (" + ex.getMessage() + "); using fit instead.");
+            return "";
+        }
     }
     private void transfer(boolean push) {
         String serial = selected().serial();
@@ -289,6 +375,9 @@ public final class DesktopApp {
         prefs.putInt("size", (int) size.getValue()); prefs.putInt("fps", (int) fps.getValue());
         prefs.putInt("bitrate", (int) bitrate.getValue()); prefs.putBoolean("audio", audio.isSelected());
         prefs.putBoolean("control", control.isSelected()); prefs.putBoolean("fullscreen", fullscreen.isSelected());
+        prefs.put("fill", ((Backend.Fill) fill.getSelectedItem()).name());
+        prefs.put("ratio", ((AspectRatio.Ratio) ratio.getSelectedItem()).name());
+        prefs.put("ratioCustom", customRatio.getText().trim());
     }
     public static void main(String[] args) {
         if (GraphicsEnvironment.isHeadless()) {

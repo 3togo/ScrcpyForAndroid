@@ -11,7 +11,9 @@ application continues to build independently.
 - Java 17 or newer, including the desktop libraries (not a headless-only JRE).
   Building requires a JDK 17 installation.
 - Android platform-tools (`adb`) with wireless pairing support.
-- Native scrcpy 3.0 or newer; development validation uses scrcpy 4.1.
+- Native scrcpy 4.0 or newer; development validation uses scrcpy 4.1.
+  Releases before 4.0 have no `--render-fit`, so the Stretch fill mode is
+  unavailable there.
   Follow the [official Linux installation instructions](https://github.com/Genymobile/scrcpy/blob/master/doc/linux.md).
 
 Both executables must be on `PATH`. To use specific installations, set `ADB` and
@@ -67,9 +69,13 @@ sudo apt install ./desktop/build/distributions/scrcpy-desktop_0.5.5-1_all.deb
 
 The package installs an application-menu
 entry, icon, and `scrcpy-desktop` command. It bundles the Java libraries and
-declares dependencies on a graphical Java 17+ runtime, adb, and scrcpy 3.0+.
+declares dependencies on a graphical Java 17+ runtime, adb, and scrcpy 4.0+.
 Your configured apt repositories must provide those dependencies; an unmanaged
 scrcpy installation in `/usr/local` does not satisfy apt's dependency tracking.
+Many distributions still package scrcpy 3.x, so `apt install` can report
+`scrcpy (>= 4.0)` as unsatisfiable. Install scrcpy 4.0+ from the official
+instructions first, or bypass the check with
+`sudo dpkg -i --force-depends scrcpy-desktop_VERSION_all.deb`.
 
 Use `--skip-build` to package an existing `installDist`, or `--output-dir DIR`
 to choose another output directory. Gradle flags follow `--`, for example

@@ -500,6 +500,14 @@
     <string name="scrcpyopt_keep_active">Simulate user activity to keep the screen on</string>
     <string name="scrcpyopt_show_touches">Enable \"show touches\" on start, restore the initial value on exit</string>
     <string name="scrcpyopt_fullscreen">Start in fullscreen</string>
+    <string name="scrcpyopt_fullscreen_fill">Fullscreen fill</string>
+    <string name="scrcpyopt_fullscreen_fill_summary">How the video fits the screen: Fit (letterbox), Stretch, or Crop to fill</string>
+    <string name="scrcpyopt_aspect_ratio">Aspect ratio</string>
+    <string name="scrcpyopt_aspect_ratio_summary">Crop the mirrored video to a fixed display ratio</string>
+    <string name="scrcpyopt_aspect_ratio_custom">Custom ratio (width:height or decimal)</string>
+    <string name="scrcpyopt_render_fit_fit">Fit (letterbox)</string>
+    <string name="scrcpyopt_render_fit_stretch">Stretch</string>
+    <string name="scrcpyopt_render_fit_crop">Crop to fill</string>
     <string name="scrcpyopt_disable_screensaver">Disable screensaver while scrcpy is running</string>
     <string name="scrcpyopt_disable_screensaver_note">Be aware of burn-in; this also affects picture-in-picture</string>
     <string name="scrcpyopt_kill_adb_on_close">Kill adb when scrcpy terminates</string>

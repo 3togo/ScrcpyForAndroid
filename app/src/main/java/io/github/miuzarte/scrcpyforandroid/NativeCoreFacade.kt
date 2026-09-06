@@ -38,6 +38,11 @@ object NativeCoreFacade {
     private val renderer = PersistentVideoRenderer()
     private val controller = VideoDecoderController(renderer)
 
+    init {
+        // Feed decoded video frame size to the renderer so it can crop to a target aspect ratio.
+        addVideoSizeListener { width, height -> renderer.setVideoSize(width, height) }
+    }
+
     @Volatile
     private var activeSurfaceId: Int? = null
 
@@ -159,6 +164,12 @@ object NativeCoreFacade {
     fun removeVideoSizeListener(listener: (Int, Int) -> Unit) = controller.removeVideoSizeListener(listener)
     fun addVideoFpsListener(listener: (Float) -> Unit) = controller.addVideoFpsListener(listener)
     fun removeVideoFpsListener(listener: (Float) -> Unit) = controller.removeVideoFpsListener(listener)
+
+    /** Push the display "fullscreen fill" mode (FIT / STRETCH / CROP) to the renderer. */
+    fun setRenderFit(mode: String) = renderer.setFitMode(mode)
+
+    /** Push the target display aspect ratio (0.0 = device ratio) to the renderer. */
+    fun setAspectRatio(target: Double) = renderer.setAspectRatio(target)
 
     /**
      * Called by Scrcpy.kt when a session starts.

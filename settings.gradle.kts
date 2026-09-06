@@ -31,3 +31,4 @@ dependencyResolutionManagement {
 rootProject.name = "Scrcpy"
 includeBuild("submodule/miuix")
 include(":app")
+include(":core")

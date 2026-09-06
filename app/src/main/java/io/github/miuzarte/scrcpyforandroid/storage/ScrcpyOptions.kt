@@ -7,6 +7,7 @@ import io.github.miuzarte.scrcpyforandroid.R
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions.KeyInjectMode
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions.RecordFormat
+import io.github.miuzarte.scrcpyforandroid.scrcpy.ScrcpyAspectRatio
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -287,6 +288,18 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
             booleanPreferencesKey("ignore_video_encoder_constraints"),
             false,
         )
+        val RENDER_FIT = Pair(
+            stringPreferencesKey("render_fit"),
+            "FIT",
+        )
+        val ASPECT_RATIO = Pair(
+            stringPreferencesKey("aspect_ratio"),
+            "DEVICE",
+        )
+        val ASPECT_RATIO_CUSTOM = Pair(
+            stringPreferencesKey("aspect_ratio_custom"),
+            "",
+        )
 
         fun defaultBundle() = Bundle(
             crop = CROP.defaultValue,
@@ -356,6 +369,9 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
             keepActive = KEEP_ACTIVE.defaultValue,
             flexDisplay = FLEX_DISPLAY.defaultValue,
             ignoreVideoEncoderConstraints = IGNORE_VIDEO_ENCODER_CONSTRAINTS.defaultValue,
+            renderFit = RENDER_FIT.defaultValue,
+            aspectRatio = ASPECT_RATIO.defaultValue,
+            aspectRatioCustom = ASPECT_RATIO_CUSTOM.defaultValue,
         )
     }
 
@@ -428,6 +444,9 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         val keepActive: Boolean,
         val flexDisplay: Boolean,
         val ignoreVideoEncoderConstraints: Boolean,
+        val renderFit: String,
+        val aspectRatio: String,
+        val aspectRatioCustom: String,
     ): Parcelable {
     }
 
@@ -498,6 +517,9 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         bundleField(KEEP_ACTIVE) { it.keepActive },
         bundleField(FLEX_DISPLAY) { it.flexDisplay },
         bundleField(IGNORE_VIDEO_ENCODER_CONSTRAINTS) { it.ignoreVideoEncoderConstraints },
+        bundleField(RENDER_FIT) { it.renderFit },
+        bundleField(ASPECT_RATIO) { it.aspectRatio },
+        bundleField(ASPECT_RATIO_CUSTOM) { it.aspectRatioCustom },
     )
 
     val bundleState: StateFlow<Bundle> = createBundleState(::bundleFromPreferences)
@@ -570,6 +592,9 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         keepActive = preferences.read(KEEP_ACTIVE),
         flexDisplay = preferences.read(FLEX_DISPLAY),
         ignoreVideoEncoderConstraints = preferences.read(IGNORE_VIDEO_ENCODER_CONSTRAINTS),
+        renderFit = preferences.read(RENDER_FIT),
+        aspectRatio = preferences.read(ASPECT_RATIO),
+        aspectRatioCustom = preferences.read(ASPECT_RATIO_CUSTOM),
     )
 
     suspend fun loadBundle() = loadBundle(::bundleFromPreferences)
@@ -654,6 +679,8 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         keepActive = bundle.keepActive,
         flexDisplay = bundle.flexDisplay,
         ignoreVideoEncoderConstraints = bundle.ignoreVideoEncoderConstraints,
+        renderFit = bundle.renderFit,
+        aspectRatio = ScrcpyAspectRatio.targetRatioFromName(bundle.aspectRatio, bundle.aspectRatioCustom),
     )
 }
 
@@ -726,6 +753,9 @@ internal fun encodeBundleToJson(bundle: ScrcpyOptions.Bundle): JSONObject =
         .put("keepActive", bundle.keepActive)
         .put("flexDisplay", bundle.flexDisplay)
         .put("ignoreVideoEncoderConstraints", bundle.ignoreVideoEncoderConstraints)
+        .put("renderFit", bundle.renderFit)
+        .put("aspectRatio", bundle.aspectRatio)
+        .put("aspectRatioCustom", bundle.aspectRatioCustom)
 
 internal fun decodeBundleFromJson(bundleJson: JSONObject?): ScrcpyOptions.Bundle {
     val json = bundleJson ?: return ScrcpyOptions.defaultBundle()
@@ -997,6 +1027,18 @@ internal fun decodeBundleFromJson(bundleJson: JSONObject?): ScrcpyOptions.Bundle
         ignoreVideoEncoderConstraints = json.optBooleanOrDefault(
             "ignoreVideoEncoderConstraints",
             ScrcpyOptions.IGNORE_VIDEO_ENCODER_CONSTRAINTS.defaultValue,
+        ),
+        renderFit = json.optStringOrDefault(
+            "renderFit",
+            ScrcpyOptions.RENDER_FIT.defaultValue,
+        ),
+        aspectRatio = json.optStringOrDefault(
+            "aspectRatio",
+            ScrcpyOptions.ASPECT_RATIO.defaultValue,
+        ),
+        aspectRatioCustom = json.optStringOrDefault(
+            "aspectRatioCustom",
+            ScrcpyOptions.ASPECT_RATIO_CUSTOM.defaultValue,
         ),
     )
 }

@@ -32,6 +32,7 @@ import io.github.miuzarte.scrcpyforandroid.models.DeviceShortcuts
 import io.github.miuzarte.scrcpyforandroid.models.ScrcpyOptions.Crop
 import io.github.miuzarte.scrcpyforandroid.models.ScrcpyOptions.NewDisplay
 import io.github.miuzarte.scrcpyforandroid.scaffolds.*
+import io.github.miuzarte.scrcpy.core.AspectRatio
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.*
@@ -798,6 +799,25 @@ internal fun ScrcpyAllOptionsPage(
             .coerceAtLeast(0)
     }
 
+    val renderFitValues = rememberSaveable { listOf("FIT", "STRETCH", "CROP") }
+    val renderFitLabels = listOf(
+        stringResource(R.string.scrcpyopt_render_fit_fit),
+        stringResource(R.string.scrcpyopt_render_fit_stretch),
+        stringResource(R.string.scrcpyopt_render_fit_crop),
+    )
+    val renderFitIndex = rememberSaveable(soBundle.renderFit) {
+        renderFitValues.indexOf(soBundle.renderFit).coerceAtLeast(0)
+    }
+
+    val aspectRatioValues = rememberSaveable { AspectRatio.Ratio.entries.map { it.name } }
+    val aspectRatioLabels = rememberSaveable { AspectRatio.Ratio.entries.map { it.toString() } }
+    val aspectRatioIndex = rememberSaveable(soBundle.aspectRatio) {
+        aspectRatioValues.indexOf(soBundle.aspectRatio).coerceAtLeast(0)
+    }
+    var aspectCustomInput by rememberSaveable(soBundle.aspectRatioCustom) {
+        mutableStateOf(soBundle.aspectRatioCustom)
+    }
+
     var serverParamsPreview by rememberSaveable { mutableStateOf("") }
     // 监听选项变化, 自动更新预览
     LaunchedEffect(soBundle) {
@@ -1008,6 +1028,15 @@ internal fun ScrcpyAllOptionsPage(
                         soBundle = soBundle.copy(
                             fullscreen = it,
                         )
+                    },
+                )
+                OverlayDropdownPreference(
+                    title = stringResource(R.string.scrcpyopt_fullscreen_fill),
+                    summary = stringResource(R.string.scrcpyopt_fullscreen_fill_summary),
+                    items = renderFitLabels,
+                    selectedIndex = renderFitIndex,
+                    onSelectedIndexChange = {
+                        soBundle = soBundle.copy(renderFit = renderFitValues[it])
                     },
                 )
                 SwitchPreference(
@@ -2017,6 +2046,42 @@ internal fun ScrcpyAllOptionsPage(
                                 },
                                 modifier = Modifier.width(trailingButtonWidth),
                                 colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card {
+                Column(
+                    modifier = Modifier.padding(vertical = UiSpacing.Large),
+                    verticalArrangement = Arrangement.spacedBy(UiSpacing.ContentVertical),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = UiSpacing.Large),
+                        verticalArrangement = Arrangement.spacedBy(UiSpacing.Medium),
+                    ) {
+                        OverlayDropdownPreference(
+                            title = stringResource(R.string.scrcpyopt_aspect_ratio),
+                            summary = stringResource(R.string.scrcpyopt_aspect_ratio_summary),
+                            items = aspectRatioLabels,
+                            selectedIndex = aspectRatioIndex,
+                            onSelectedIndexChange = {
+                                soBundle = soBundle.copy(aspectRatio = aspectRatioValues[it])
+                            },
+                        )
+                        if (soBundle.aspectRatio == AspectRatio.Ratio.CUSTOM.name) {
+                            SuperTextField(
+                                label = stringResource(R.string.scrcpyopt_aspect_ratio_custom),
+                                value = aspectCustomInput,
+                                onValueChange = { aspectCustomInput = it },
+                                onFocusLost = {
+                                    soBundle = soBundle.copy(aspectRatioCustom = aspectCustomInput)
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }

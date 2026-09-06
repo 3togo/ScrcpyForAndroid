@@ -7,6 +7,7 @@ import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
 
 /**
  * Decoder always renders into a persistent SurfaceTexture-backed Surface.
@@ -52,6 +53,21 @@ class PersistentVideoRenderer {
     private var mvpMatrixHandle = 0
     private var stMatrixHandle = 0
     private var samplerHandle = 0
+    private var texRectHandle = 0
+
+    /** How the mirrored video is fitted into the render surface. */
+    private enum class Fit { FIT, STRETCH, CROP }
+
+    @Volatile
+    private var fitMode = Fit.FIT
+    /** Target display aspect ratio (width/height) to crop the video to; 0.0 keeps the device ratio. */
+    @Volatile
+    private var aspectTarget = 0.0
+    /** Current decoded video frame size, used for aspect-ratio cropping. */
+    @Volatile
+    private var videoW = 0
+    @Volatile
+    private var videoH = 0
 
     private val initLock = Any()
 
@@ -221,6 +237,35 @@ class PersistentVideoRenderer {
         }
     }
 
+    /** Set how the video is fitted into the surface: FIT (letterbox), STRETCH, or CROP (cover). */
+    fun setFitMode(mode: String) {
+        fitMode = when (mode.uppercase()) {
+            "STRETCH" -> Fit.STRETCH
+            "CROP" -> Fit.CROP
+            else -> Fit.FIT
+        }
+        requestRedraw()
+    }
+
+    /** Set the target display aspect ratio (width/height). 0.0 (or <=0) keeps the device ratio. */
+    fun setAspectRatio(target: Double) {
+        aspectTarget = if (target.isFinite() && target > 0) target else 0.0
+        requestRedraw()
+    }
+
+    /** Report the decoded video frame size; used to crop the source to the target aspect ratio. */
+    fun setVideoSize(width: Int, height: Int) {
+        videoW = width.coerceAtLeast(0)
+        videoH = height.coerceAtLeast(0)
+        requestRedraw()
+    }
+
+    /** Ask the render thread to redraw the current frame (e.g. after an option change). */
+    fun requestRedraw() {
+        if (released) return
+        handler.post { drawFrame() }
+    }
+
     fun release() {
         handler.post {
             if (released) return@post
@@ -338,6 +383,7 @@ class PersistentVideoRenderer {
         mvpMatrixHandle = GLES20.glGetUniformLocation(program, "uMvpMatrix")
         stMatrixHandle = GLES20.glGetUniformLocation(program, "uStMatrix")
         samplerHandle = GLES20.glGetUniformLocation(program, "sTexture")
+        texRectHandle = GLES20.glGetUniformLocation(program, "uTexRect")
     }
 
     private fun drawFrame() {
@@ -368,6 +414,7 @@ class PersistentVideoRenderer {
                 width = recordWidth,
                 height = recordHeight,
                 presentationTimeNs = frameTimestampNs,
+                applyDisplayTransform = false,
             )
             onRecordFrameRendered?.invoke(frameTimestampNs)
         }
@@ -424,14 +471,21 @@ class PersistentVideoRenderer {
         width: Int,
         height: Int,
         presentationTimeNs: Long? = null,
+        applyDisplayTransform: Boolean = true,
     ) {
         EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-        GLES20.glViewport(0, 0, width.coerceAtLeast(1), height.coerceAtLeast(1))
+        val w = width.coerceAtLeast(1)
+        val h = height.coerceAtLeast(1)
+        GLES20.glViewport(0, 0, w, h)
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(program)
-        GLES20.glUniformMatrix4fv(mvpMatrixHandle, 1, false, mvpMatrix, 0)
+
+        // Recording should capture the raw frame; display fit/aspect only applies to the live view.
+        val transform = if (applyDisplayTransform) computeTransform(w, h) else Transform(0f, 0f, 1f, 1f, mvpMatrix)
+        GLES20.glUniformMatrix4fv(mvpMatrixHandle, 1, false, transform.mvp, 0)
         GLES20.glUniformMatrix4fv(stMatrixHandle, 1, false, stMatrix, 0)
+        GLES20.glUniform4f(texRectHandle, transform.u0, transform.v0, transform.u1, transform.v1)
         GLES20.glUniform1i(samplerHandle, 0)
 
         VERTICES.position(0)
@@ -446,6 +500,74 @@ class PersistentVideoRenderer {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         presentationTimeNs?.let { EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, it) }
         EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+    }
+
+    private data class Transform(
+        val u0: Float,
+        val v0: Float,
+        val u1: Float,
+        val v1: Float,
+        val mvp: FloatArray,
+    )
+
+    /**
+     * Compute the texture sub-rectangle (u0,v0,u1,v1) and the clip-space MVP for the current
+     * aspect-ratio + fit mode. The video is first cropped (in normalized texture space) to the
+     * target aspect ratio, then fitted / stretched / cropped into the [surfaceW]x[surfaceH] surface.
+     */
+    private fun computeTransform(surfaceW: Int, surfaceH: Int): Transform {
+        if (videoW <= 0 || videoH <= 0) {
+            return Transform(0f, 0f, 1f, 1f, mvpMatrix)
+        }
+        // 1) Crop the source to the chosen aspect ratio (centered sub-rectangle).
+        val srcAspect = videoW.toDouble() / videoH
+        val (sw, sh, sx, sy) = if (aspectTarget > 0) {
+            // Orient the target ratio to the surface so e.g. "16:9" matches a landscape surface.
+            val oriented = if (surfaceW >= surfaceH) aspectTarget else 1.0 / aspectTarget
+            if (oriented >= srcAspect) {
+                val cropH = (videoW / oriented).roundToInt().coerceAtLeast(2).coerceAtMost(videoH)
+                listOf(videoW, cropH, 0, (videoH - cropH) / 2)
+            } else {
+                val cropW = (videoH * oriented).roundToInt().coerceAtLeast(2).coerceAtMost(videoW)
+                listOf(cropW, videoH, (videoW - cropW) / 2, 0)
+            }
+        } else {
+            listOf(videoW, videoH, 0, 0)
+        }
+        val u0 = sx.toFloat() / videoW
+        val v0 = sy.toFloat() / videoH
+        val u1 = (sx + sw).toFloat() / videoW
+        val v1 = (sy + sh).toFloat() / videoH
+
+        // 2) Fit / stretch / crop the sub-rectangle into the surface (centered).
+        val (rectW, rectH, rectX, rectY) = when (fitMode) {
+            Fit.STRETCH -> listOf(surfaceW.toFloat(), surfaceH.toFloat(), 0f, 0f)
+            Fit.FIT -> {
+                val s = minOf(surfaceW.toFloat() / sw, surfaceH.toFloat() / sh)
+                val rw = sw * s
+                val rh = sh * s
+                listOf(rw, rh, (surfaceW - rw) / 2f, (surfaceH - rh) / 2f)
+            }
+            Fit.CROP -> {
+                val s = maxOf(surfaceW.toFloat() / sw, surfaceH.toFloat() / sh)
+                val rw = sw * s
+                val rh = sh * s
+                listOf(rw, rh, (surfaceW - rw) / 2f, (surfaceH - rh) / 2f)
+            }
+        }
+
+        val clipScaleX = rectW / surfaceW
+        val clipScaleY = rectH / surfaceH
+        val clipTransX = (2f * rectX + rectW - surfaceW) / surfaceW
+        val clipTransY = (2f * rectY + rectH - surfaceH) / surfaceH
+
+        val tmp = FloatArray(16)
+        Matrix.setIdentityM(tmp, 0)
+        Matrix.translateM(tmp, 0, clipTransX, clipTransY, 0f)
+        Matrix.scaleM(tmp, 0, clipScaleX, clipScaleY, 1f)
+        val finalMvp = FloatArray(16)
+        Matrix.multiplyMM(finalMvp, 0, tmp, 0, mvpMatrix, 0)
+        return Transform(u0, v0, u1, v1, finalMvp)
     }
 
     private fun createExternalTexture(): Int {
@@ -513,10 +635,17 @@ class PersistentVideoRenderer {
             attribute vec4 aTexCoord;
             uniform mat4 uMvpMatrix;
             uniform mat4 uStMatrix;
+            uniform vec4 uTexRect;
             varying vec2 vTexCoord;
             void main() {
                 gl_Position = uMvpMatrix * aPosition;
-                vTexCoord = (uStMatrix * aTexCoord).xy;
+                vec4 t = vec4(
+                    mix(uTexRect.x, uTexRect.z, aTexCoord.x),
+                    mix(uTexRect.y, uTexRect.w, aTexCoord.y),
+                    0.0,
+                    1.0
+                );
+                vTexCoord = (uStMatrix * t).xy;
             }
         """
 

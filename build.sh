@@ -8,6 +8,7 @@ usage() {
     cat <<'EOF'
 Usage: ./build.sh [--accept-licenses] [--skip-sdk-setup] [Gradle arguments...]
        ./build.sh --desktop [Gradle arguments...]
+       ./build.sh --install [apk|deb|both] [Gradle arguments...]
 
 By default, prepare the Android SDK and build debug APKs (assembleDebug).
 Missing SDK command-line tools, platform, build-tools, NDK and CMake are installed.
@@ -18,6 +19,14 @@ SDK licenses are displayed for interactive acceptance before building.
   --skip-sdk-setup   Use an already prepared SDK; useful for offline builds.
   --desktop         Build the Linux desktop app without Android SDK setup.
                     Default tasks: check installDist.
+  --install [WHAT]  Build, then install what was built:
+                      1) apk  - assembleDebug, then adb install -r
+                      2) deb  - desktop package, then sudo apt install
+                      3) both - 1) followed by 2)
+                    Without WHAT an interactive menu asks which one to run;
+                    a non-interactive shell requires WHAT.
+                    Gradle arguments, when given, are used for every build run;
+                    with a target they must follow '--' or the target name.
   -h, --help        Show this help.
   --                Pass all remaining arguments directly to Gradle.
 
@@ -27,10 +36,18 @@ Examples:
   ./build.sh --accept-licenses clean assembleDebug -PabiList=arm64-v8a
   ./build.sh --skip-sdk-setup assembleDebug --offline
   ./build.sh --desktop
+  ./build.sh --desktop --install
+  ./build.sh --install          # menu: 1) apk  2) deb  3) both
+  ./build.sh --install apk
+  ./build.sh --install deb
+  ./build.sh --install both
 
 SDK location: local.properties sdk.dir, ANDROID_HOME, ANDROID_SDK_ROOT,
 then an existing SDK in ~/Android/Sdk, ~/Android or ~/.android.
 A fresh SDK defaults to ~/Android/Sdk. SDKMANAGER can select a specific tool.
+APK installation uses adb from the SDK, from $ADB, or from PATH. With more
+than one device attached, an interactive prompt lets you choose one; in a
+non-interactive shell set ANDROID_SERIAL to select the target device.
 Requires Bash, Java 17+ (JDK 21 recommended), and Git for missing submodules.
 Automatic command-line tools download requires Linux x86_64, curl, unzip and
 sha256sum. Other hosts must provide sdkmanager themselves.
@@ -44,18 +61,83 @@ require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command mis
 accept_licenses=false
 skip_sdk_setup=false
 desktop=false
+install_requested=false
+install_target=""
 gradle_args=()
+user_gradle_args=false
 while (($#)); do
     case "$1" in
         --accept-licenses) accept_licenses=true ;;
         --skip-sdk-setup) skip_sdk_setup=true ;;
         --desktop) desktop=true ;;
+        --install)
+            install_requested=true
+            # Take the next non-option argument as the target; Gradle arguments
+            # must come after '--' or after the target.
+            if (($# >= 2)) && [[ $2 != -* ]]; then
+                install_target=$2
+                shift
+            fi
+            ;;
+        --install=*)
+            install_requested=true
+            install_target=${1#--install=}
+            ;;
         -h|--help) usage; exit 0 ;;
-        --) shift; gradle_args+=("$@"); break ;;
-        *) gradle_args+=("$1") ;;
+        --) shift; gradle_args+=("$@"); user_gradle_args=true; break ;;
+        *) gradle_args+=("$1"); user_gradle_args=true ;;
     esac
     shift
 done
+
+case "$(printf '%s' "$install_target" | tr '[:upper:]' '[:lower:]')" in
+    "") : ;; # No --install target given; menu or --desktop decides later.
+    apk|android) install_target=apk ;;
+    deb|desktop) install_target=deb ;;
+    both|all) install_target=both ;;
+    *) die "Invalid --install target: $install_target (use apk, deb or both)." ;;
+esac
+# --desktop --install keeps meaning "install the .deb".
+if "$install_requested" && [[ -z "$install_target" ]] && "$desktop"; then
+    install_target=deb
+fi
+
+# Sets install_target from an interactive menu (stdout must stay a terminal).
+choose_install_target() {
+    printf '\nWhat do you want to build and install?\n'
+    printf '  1) Android APK   assembleDebug, then adb install -r\n'
+    printf '  2) Linux .deb    desktop app, then sudo apt install\n'
+    printf '  3) Both          1) followed by 2)\n'
+    local answer=''
+    if ! read -r -p 'Choose 1, 2 or 3 [1]: ' answer; then
+        die "No choice received; expected 1, 2 or 3."
+    fi
+    case "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')" in
+        1|apk|android|'') install_target=apk ;;
+        2|deb|desktop) install_target=deb ;;
+        3|both|all) install_target=both ;;
+        *) die "Unknown choice: $answer (expected 1, 2 or 3)." ;;
+    esac
+}
+
+if "$install_requested" && [[ -z "$install_target" ]]; then
+    [[ -t 0 && -t 1 ]] || die "--install needs a target in a non-interactive shell: --install apk, --install deb or --install both."
+    choose_install_target
+fi
+
+target_apk=false
+target_deb=false
+case "$install_target" in
+    apk) target_apk=true ;;
+    deb) target_deb=true ;;
+    both) target_apk=true; target_deb=true ;;
+esac
+if "$desktop"; then
+    if "$target_apk"; then
+        die "--desktop cannot be combined with --install apk."
+    fi
+    target_deb=true
+fi
 
 java_bin="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 command -v "$java_bin" >/dev/null 2>&1 || die "Install JDK 21 or set JAVA_HOME to an installed JDK."
@@ -65,9 +147,195 @@ if [[ ! "$java_major" =~ ^[0-9]+$ ]] || ((java_major < 17)); then
     die "Java 17+ is required; install JDK 21 or fix JAVA_HOME."
 fi
 
-if "$desktop"; then
-    ((${#gradle_args[@]})) || gradle_args=(check installDist)
-    exec bash "$project_dir/gradlew" -p "$project_dir/desktop" "${gradle_args[@]}"
+# scrcpy-desktop Depends: scrcpy (>= 4.0) (see desktop/package-deb.sh), but most
+# distros still ship 3.x, and a manually installed /usr/local/bin/scrcpy is invisible
+# to apt. Install the upstream 4.1 .deb so apt can resolve the dependency.
+scrcpy_min_major=4
+scrcpy_deb_version="${SCRCPY_DEB_VERSION:-4.1}"
+# GitHub first; ghproxy.net / gh-proxy.com are fallbacks for restricted networks.
+scrcpy_deb_urls=(
+    "https://github.com/jakbin/scrcpy-deb/releases/download/${scrcpy_deb_version}/scrcpy.deb"
+    "https://ghproxy.net/https://github.com/jakbin/scrcpy-deb/releases/download/${scrcpy_deb_version}/scrcpy.deb"
+    "https://gh-proxy.com/https://github.com/jakbin/scrcpy-deb/releases/download/${scrcpy_deb_version}/scrcpy.deb"
+)
+
+# scrcpy version as apt/dpkg sees it; empty when not installed as a package.
+apt_scrcpy_version() {
+    dpkg-query -W -f='${Version}' scrcpy 2>/dev/null || true
+}
+
+scrcpy_satisfied() {
+    local version major
+    version="$(apt_scrcpy_version)"
+    [[ -n "$version" ]] || return 1
+    version="${version#*:}" # strip epoch, e.g. 1:3.3.4-1 -> 3.3.4-1
+    major="${version%%.*}"
+    [[ "$major" =~ ^[0-9]+$ ]] || return 1
+    ((major >= scrcpy_min_major))
+}
+
+download_scrcpy_deb() {
+    local dest="$1" url
+    for url in "${scrcpy_deb_urls[@]}"; do
+        log "Trying $url"
+        if command -v curl >/dev/null 2>&1 &&
+            curl -fL --retry 2 --connect-timeout 15 -o "$dest" "$url"; then
+            return 0
+        fi
+        if command -v wget >/dev/null 2>&1 &&
+            wget -q --tries=2 --timeout=20 -O "$dest" "$url"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+apt_install_local_deb() {
+    local deb="$1"
+    command -v apt >/dev/null 2>&1 || return 1
+    if ((EUID == 0)); then
+        apt install -y -- "$deb"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo apt install -y -- "$deb"
+    else
+        return 1
+    fi
+}
+
+ensure_scrcpy() {
+    if scrcpy_satisfied; then
+        log "scrcpy $(apt_scrcpy_version) is already registered with apt."
+        return 0
+    fi
+    log "apt has no scrcpy >= ${scrcpy_min_major}.0; installing scrcpy ${scrcpy_deb_version}."
+    # Offline escape hatch: point SCRCPY_DEB_PATH at a locally downloaded scrcpy .deb.
+    if [[ -n "${SCRCPY_DEB_PATH:-}" ]]; then
+        [[ -f "$SCRCPY_DEB_PATH" ]] || die "SCRCPY_DEB_PATH is not a file: $SCRCPY_DEB_PATH"
+        log "Installing local scrcpy package: $SCRCPY_DEB_PATH"
+        apt_install_local_deb "$SCRCPY_DEB_PATH" ||
+            die "Failed to install $SCRCPY_DEB_PATH. Install scrcpy >= ${scrcpy_min_major}.0 manually."
+        return 0
+    fi
+    local tmp dest
+    tmp="$(mktemp -d)" || die "Could not create a temporary directory."
+    dest="$tmp/scrcpy.deb"
+    if ! download_scrcpy_deb "$dest"; then
+        rm -rf -- "$tmp"
+        die "Could not download the scrcpy ${scrcpy_deb_version} .deb. Set SCRCPY_DEB_PATH to a local copy, or install scrcpy >= ${scrcpy_min_major}.0 yourself."
+    fi
+    if ! apt_install_local_deb "$dest"; then
+        rm -rf -- "$tmp"
+        die "Failed to install the downloaded scrcpy package. Install scrcpy >= ${scrcpy_min_major}.0 manually, then re-run."
+    fi
+    rm -rf -- "$tmp"
+    scrcpy_satisfied ||
+        log "Warning: apt still does not see scrcpy >= ${scrcpy_min_major}.0; the .deb install may fail."
+}
+
+# Build the Linux desktop app; with --install deb it also packages and installs it.
+build_desktop() {
+    local -a tasks=("$@")
+    ((${#tasks[@]})) || tasks=(check installDist)
+    log "Running Gradle (desktop): ${tasks[*]}"
+    if "$target_deb" && "$install_requested"; then
+        ensure_scrcpy
+        # package-deb.sh runs the Gradle build, packages the .deb, then apt installs it.
+        bash "$project_dir/desktop/package-deb.sh" --install -- "${tasks[@]}"
+    else
+        bash "$project_dir/gradlew" -p "$project_dir/desktop" "${tasks[@]}"
+    fi
+}
+
+# Install the freshly built debug APK on the connected device.
+install_apk() {
+    local adb="${ADB:-}"
+    if [[ -z "$adb" ]]; then
+        if [[ -x "$sdk_dir/platform-tools/adb" ]]; then
+            adb="$sdk_dir/platform-tools/adb"
+        else
+            adb="$(command -v adb || true)"
+        fi
+    fi
+    [[ -n "$adb" ]] || die "adb not found; install Android platform-tools or set ADB=/path/to/adb."
+    local -a adb_cmd=("$adb")
+    [[ -z "${ANDROID_SERIAL:-}" ]] || adb_cmd+=(-s "$ANDROID_SERIAL")
+
+    local devices device_count=0 serial chosen='' index=1 answer=''
+    devices="$("${adb_cmd[@]}" devices | awk 'NR > 1 && $2 == "device" {print $1}')"
+    [[ -n "$devices" ]] || die "No Android device connected. Connect one, start adb, or set ANDROID_SERIAL."
+    while IFS= read -r serial; do
+        [[ -n "$serial" ]] && device_count=$((device_count + 1))
+    done <<<"$devices"
+    if ((device_count > 1)); then
+        if [[ ! -t 0 || ! -t 1 ]]; then
+            die "More than one device connected; set ANDROID_SERIAL first: ${devices//$'\n'/ }"
+        fi
+        printf '\nMore than one device is connected. Choose which to install on:\n'
+        while IFS= read -r serial; do
+            [[ -n "$serial" ]] || continue
+            printf '  %d) %s\n' "$index" "$serial"
+            index=$((index + 1))
+        done <<<"$devices"
+        if ! read -r -p "Choose a device [1]: " answer; then
+            die "No device selected; expected a number between 1 and $device_count."
+        fi
+        answer="$(printf '%s' "$answer" | tr -d '[:space:]')"
+        [[ -z "$answer" ]] && answer=1
+        if ! [[ "$answer" =~ ^[0-9]+$ ]] || [[ $answer -lt 1 ]] || [[ $answer -gt $device_count ]]; then
+            die "Invalid choice: $answer (expected 1 to $device_count)."
+        fi
+        chosen="$(awk -v n="$answer" 'NF>0 {c++; if (c == n) {print; exit}}' <<<"$devices")"
+        [[ -n "$chosen" ]] || die "Could not resolve device number $answer."
+        export ANDROID_SERIAL="$chosen"
+        adb_cmd=("$adb" -s "$ANDROID_SERIAL")
+        log "Using device: $ANDROID_SERIAL"
+    fi
+
+    local apk_dir="$project_dir/app/build/outputs/apk/debug"
+    local previous_nullglob
+    previous_nullglob="$(shopt -p nullglob || true)"
+    shopt -s nullglob
+    local -a apks=("$apk_dir"/*.apk)
+    eval "$previous_nullglob"
+    ((${#apks[@]})) || die "No APK found in $apk_dir."
+
+    local apk=""
+    if ((${#apks[@]} == 1)); then
+        apk=${apks[0]}
+    else
+        # Split builds: prefer the device ABI, then the universal APK.
+        local device_abi
+        device_abi="$("${adb_cmd[@]}" shell getprop ro.product.cpu.abi | tr -d '\r\n')"
+        local candidate
+        for candidate in "${apks[@]}"; do
+            if [[ ${candidate##*/} == *"$device_abi"* ]]; then
+                apk=$candidate
+                break
+            fi
+        done
+        if [[ -z "$apk" ]]; then
+            for candidate in "${apks[@]}"; do
+                if [[ ${candidate##*/} == *universal* ]]; then
+                    apk=$candidate
+                    break
+                fi
+            done
+        fi
+        [[ -n "$apk" ]] || die "Cannot pick an APK for ${device_abi:-this device} in ${apks[*]}."
+    fi
+
+    log "Installing APK: $apk"
+    "${adb_cmd[@]}" install -r "$apk"
+}
+
+# Deb-only runs need no Android SDK at all.
+if "$target_deb" && ! "$target_apk"; then
+    if "$user_gradle_args"; then
+        build_desktop "${gradle_args[@]}"
+    else
+        build_desktop
+    fi
+    exit 0
 fi
 
 # Match Gradle's precedence so licenses and packages go into the SDK it uses.
@@ -190,7 +458,25 @@ if [[ ! -f submodule/miuix/settings.gradle.kts ]]; then
     git submodule update --init --recursive -- submodule/miuix
 fi
 
-((${#gradle_args[@]})) || gradle_args=(assembleDebug)
-log "Running Gradle: ${gradle_args[*]}"
+apk_tasks=()
+if "$user_gradle_args"; then
+    apk_tasks=("${gradle_args[@]}")
+else
+    apk_tasks=(assembleDebug)
+fi
+log "Running Gradle: ${apk_tasks[*]}"
 # The upstream wrapper is not executable in every checkout.
-exec bash "$project_dir/gradlew" "${gradle_args[@]}"
+bash "$project_dir/gradlew" "${apk_tasks[@]}"
+
+if "$install_requested"; then
+    if "$target_apk"; then
+        install_apk
+    fi
+    if "$target_deb"; then
+        if "$user_gradle_args"; then
+            build_desktop "${gradle_args[@]}"
+        else
+            build_desktop
+        fi
+    fi
+fi

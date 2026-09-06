@@ -7,6 +7,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.regex.*;
+import io.github.miuzarte.scrcpy.core.AspectRatio;
 
 /** Native Linux transport and rendering; never invokes a local shell. */
 final class Backend implements AutoCloseable {
@@ -14,8 +16,17 @@ final class Backend implements AutoCloseable {
         boolean ready() { return state.equals("device"); }
         @Override public String toString() { return model + "  ·  " + serial + "  (" + state + ")"; }
     }
+    /** How the video is fitted to a fullscreen window. */
+    enum Fill {
+        FIT("Fit (black bars)"), STRETCH("Stretch"), CROP("Crop to fill");
+        private final String label;
+        Fill(String label) { this.label = label; }
+        @Override public String toString() { return label; }
+    }
+    // Aspect-ratio / crop math (incl. the Ratio enum) is shared with the Android app
+    // via the :core module (io.github.miuzarte.scrcpy.core.AspectRatio).
     record Options(int size, int fps, int bitrate, boolean audio, boolean control,
-                   boolean fullscreen, String recording) {
+                   boolean fullscreen, Fill fill, String crop, String recording) {
         Options {
             if (size < 0 || size > 16384 || fps < 1 || fps > 240 || bitrate < 1 || bitrate > 200)
                 throw new IllegalArgumentException("Invalid stream settings");
@@ -50,12 +61,43 @@ final class Backend implements AutoCloseable {
         }
         return result;
     }
+    /** Natural (unrotated) device size from `adb shell wm size`, e.g. "Physical size: 1080x2400". */
+    static int[] naturalSize(String wmSize) {
+        Matcher m = Pattern.compile("(\\d+)x(\\d+)").matcher(wmSize);
+        if (!m.find()) throw new IllegalArgumentException("Cannot read the device screen size");
+        return new int[] { Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)) };
+    }
+    /** True when the internal display is currently rotated to landscape. */
+    static boolean landscape(String dumpsysDisplay) {
+        Matcher m = Pattern.compile("DisplayViewport\\{type=INTERNAL[^}]*?deviceWidth=(\\d+), deviceHeight=(\\d+)")
+            .matcher(dumpsysDisplay);
+        if (!m.find()) throw new IllegalArgumentException("Cannot read the device orientation");
+        return Integer.parseInt(m.group(1)) > Integer.parseInt(m.group(2));
+    }
+    // The four methods below delegate to the shared :core module so the desktop and
+    // Android frontends compute identical crops from the same source of truth.
+    static String fillCrop(int naturalW, int naturalH, boolean landscape, int windowW, int windowH) {
+        return AspectRatio.fillCrop(naturalW, naturalH, landscape, windowW, windowH);
+    }
+    static double targetRatio(AspectRatio.Ratio mode, boolean landscape, String custom) {
+        return AspectRatio.targetRatio(mode, landscape, custom);
+    }
+    static double parseRatio(String text) { return AspectRatio.parseRatio(text); }
+    static String cropForRatio(int naturalW, int naturalH, boolean landscape, double target) {
+        return AspectRatio.cropForRatio(naturalW, naturalH, landscape, target);
+    }
     List<String> streamCommand(String serial, Options o) {
         List<String> args = new ArrayList<>(List.of(scrcpy, "--serial=" + serial,
             "--max-size=" + o.size, "--max-fps=" + o.fps, "--video-bit-rate=" + o.bitrate + "M"));
         if (!o.audio) args.add("--no-audio");
         if (!o.control) args.add("--no-control");
-        if (o.fullscreen) args.add("--fullscreen");
+        boolean hasCrop = o.crop != null && !o.crop.isBlank();
+        if (o.fullscreen) {
+            args.add("--fullscreen");
+            // Stretch distorts the image; only use it when no aspect ratio is forced.
+            if (o.fill == Fill.STRETCH && !hasCrop) args.add("--render-fit=stretched");
+        }
+        if (hasCrop) args.add("--crop=" + o.crop);
         if (!o.recording.isBlank()) args.add("--record=" + o.recording);
         return args;
     }

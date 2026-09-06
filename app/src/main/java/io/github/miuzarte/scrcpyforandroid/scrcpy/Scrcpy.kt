@@ -199,6 +199,9 @@ class Scrcpy(
             )
             isRunning = true
             flexDisplay = options.flexDisplay
+            // Push client-side display options (fullscreen fill + aspect ratio) to the renderer.
+            NativeCoreFacade.setRenderFit(options.renderFit)
+            NativeCoreFacade.setAspectRatio(options.aspectRatio)
             startClipboardSync()
 
             // Setup video consumer (notify NativeCoreFacade to setup decoders)

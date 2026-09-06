@@ -3,6 +3,7 @@ package io.github.miuzarte.scrcpy.desktop;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
+import io.github.miuzarte.scrcpy.core.AspectRatio;
 
 /** Dependency-free integration tests using a fake executable, never a real device. */
 public final class BackendTest {
@@ -23,10 +24,17 @@ public final class BackendTest {
         Files.writeString(fake, "#!/bin/sh\ncase \"$1\" in\npair) read code; [ \"$code\" = 123456 ] || exit 2; echo paired;;\nfail) echo failure; exit 7;;\nwait) exec sleep 20;;\n*) printf '%s\\n' \"$@\";;\nesac\n");
         fake.toFile().setExecutable(true);
         try (Backend backend = new Backend(fake.toString(), "/path with spaces/scrcpy")) {
-            var command = backend.streamCommand("serial;echo unsafe", new Backend.Options(1920, 60, 8, false, false, true, "/tmp/file with spaces.mkv"));
+            var command = backend.streamCommand("serial;echo unsafe", new Backend.Options(1920, 60, 8, false, false, true, Backend.Fill.STRETCH, "", "/tmp/file with spaces.mkv"));
             assert command.contains("--serial=serial;echo unsafe");
             assert command.contains("--record=/tmp/file with spaces.mkv");
-            assert command.containsAll(List.of("--no-audio", "--no-control", "--fullscreen"));
+            assert command.containsAll(List.of("--no-audio", "--no-control", "--fullscreen", "--render-fit=stretched"));
+            // A crop forces the aspect ratio and suppresses stretching.
+            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", "")).contains("--render-fit");
+            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.FIT, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
+            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true, Backend.Fill.CROP, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
+            // Crop applies whether or not the window is fullscreen; stretch needs no crop.
+            assert backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.CROP, "1080:1920:0:240", "")).contains("--crop=1080:1920:0:240");
+            assert !backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, false, Backend.Fill.STRETCH, "", "")).contains("--crop");
             assert backend.adb("echo", "a b", "$(touch nope)").equals("echo\na b\n$(touch nope)\n");
             char[] code = "123456".toCharArray();
             assert backend.pair("localhost:1234", code).contains("paired");
@@ -43,6 +51,37 @@ public final class BackendTest {
             try { backend.start(List.of(fake.toString())); throw new AssertionError("Started after close"); }
             catch (java.io.IOException expected) { }
         } finally { Files.deleteIfExists(fake); Files.deleteIfExists(temp); }
+        // Crop math for a 1080x2400 phone. The crop is expressed in the natural orientation
+        // and rotated with the device, so it is the same 9:16 region whatever the shape of the
+        // window: a portrait source stays portrait and a landscape source stays landscape.
+        assert Backend.fillCrop(1080, 2400, true, 3840, 2160).equals("1080:1920:0:240");
+        assert Backend.fillCrop(1080, 2400, false, 3840, 2160).equals("1080:1920:0:240");
+        assert Backend.fillCrop(1080, 2400, true, 2160, 3840).equals("1080:1920:0:240");
+        assert Backend.fillCrop(1080, 2400, false, 2160, 3840).equals("1080:1920:0:240");
+        // Aspect-ratio targets flip with device orientation (3:4 / 9:16 for portrait).
+        assert Backend.targetRatio(AspectRatio.Ratio.DEVICE, false, "") == 0.0;
+        assert Backend.targetRatio(AspectRatio.Ratio.SQUARE, false, "") == 1.0;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CLASSIC, false, "") - 3.0 / 4) < 1e-9;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CLASSIC, true, "") - 4.0 / 3) < 1e-9;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.WIDE, false, "") - 9.0 / 16) < 1e-9;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.WIDE, true, "") - 16.0 / 9) < 1e-9;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "21:9") - 21.0 / 9) < 1e-9;
+        assert Math.abs(Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "1.78") - 1.78) < 1e-9;
+        try { Backend.targetRatio(AspectRatio.Ratio.CUSTOM, false, "bad"); throw new AssertionError("bad ratio accepted"); }
+        catch (IllegalArgumentException expected) { }
+        // cropForRatio keeps the requested ratio and stays within the screen, even boundaries.
+        // For a landscape device the crop is rotated, so its height becomes the picture width.
+        String[] r169 = Backend.cropForRatio(1080, 2400, true, 16.0 / 9).split(":");
+        assert Integer.parseInt(r169[0]) % 2 == 0 && Integer.parseInt(r169[1]) % 2 == 0;
+        assert Math.abs(Integer.parseInt(r169[1]) / (double) Integer.parseInt(r169[0]) - 16.0 / 9) < 0.02;
+        // A landscape target on a portrait device is turned around, so the picture stays portrait.
+        String[] r916 = Backend.cropForRatio(1080, 2400, false, 16.0 / 9).split(":");
+        assert Math.abs(Integer.parseInt(r916[0]) / (double) Integer.parseInt(r916[1]) - 9.0 / 16) < 0.02;
+        assert Backend.cropForRatio(1080, 2400, false, 0).equals(Backend.cropForRatio(1080, 2400, false, (double) 1080 / 2400));
+        int[] natural = Backend.naturalSize("Physical size: 1080x2400\n");
+        assert natural[0] == 1080 && natural[1] == 2400;
+        assert Backend.landscape("DisplayViewport{type=INTERNAL, valid=true, displayId=0, orientation=1, deviceWidth=2400, deviceHeight=1080}");
+        assert !Backend.landscape("DisplayViewport{type=INTERNAL, valid=true, displayId=0, orientation=0, deviceWidth=1080, deviceHeight=2400}");
         QrPairingTest.run();
         System.out.println("All desktop backend tests passed.");
     }
