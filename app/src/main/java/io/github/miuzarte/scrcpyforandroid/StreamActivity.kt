@@ -56,7 +56,7 @@ class StreamActivity: FragmentActivity() {
         usePhoneAspect.value = getSharedPreferences("tv_connection", MODE_PRIVATE)
             .getBoolean("phone_aspect", true)
         currentActivityRef = WeakReference(this)
-        if (isTelevision()) {
+        if (tvReceiverMode) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             val scrcpy = AppRuntime.scrcpy
             if (scrcpy != null) {
@@ -98,7 +98,7 @@ class StreamActivity: FragmentActivity() {
         registerPipActionReceiver()
 
         // 声明要画中画
-        basicPip.setEnabled(!isTelevision())
+        basicPip.setEnabled(!tvReceiverMode)
 
         setContent {
             StreamScreen(activity = this)
@@ -131,6 +131,13 @@ class StreamActivity: FragmentActivity() {
          */
     }
 
+    val tvReceiverMode: Boolean
+        get() = intent.getBooleanExtra(EXTRA_TV_RECEIVER, false) || isTelevision()
+    private val phoneMappingPreferences by lazy { getSharedPreferences("tv_phone_keys", MODE_PRIVATE) }
+    private val phoneMappings by lazy { TvPhoneKeyMappings(phoneMappingPreferences.all) }
+    private var mappingDialog: AlertDialog? = null
+    private var captureDialog: AlertDialog? = null
+
     val usePhoneAspect = MutableStateFlow(false)
     private var aspectDialog: AlertDialog? = null
     private var tvMenu: AlertDialog? = null
@@ -154,10 +161,17 @@ class StreamActivity: FragmentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (!isTelevision()) return super.dispatchKeyEvent(event)
+        if (!tvReceiverMode) return super.dispatchKeyEvent(event)
         val code = event.keyCode
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) showTvMenu()
+            return true
+        }
+        val mapped = phoneMappings[code]
+        if (mapped != null) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !event.isCanceled) {
+                enqueueTv { perform(mapped) }
+            }
             return true
         }
         if (code in TV_REMOTE_KEYS) {
@@ -177,13 +191,14 @@ class StreamActivity: FragmentActivity() {
                 getString(R.string.tv_disconnect), getString(R.string.tv_aspect_ratio),
                 getString(if (tvRemote?.pointer?.value?.enabled == true) R.string.tv_navigation_mode else R.string.tv_pointer_mode),
                 getString(R.string.tv_start_drag), getString(R.string.tv_phone_home),
-                getString(R.string.tv_phone_recents))) { _, index ->
+                getString(R.string.tv_phone_recents), getString(R.string.tv_phone_mappings))) { _, index ->
                 when (index) {
                     3 -> showAspectMenu()
                     4 -> enqueueTv { setPointer(!pointer.value.enabled) }
                     5 -> enqueueTv { toggleDrag() }
                     6 -> enqueueTv { press(KeyEvent.KEYCODE_HOME) }
                     7 -> enqueueTv { press(KeyEvent.KEYCODE_APP_SWITCH) }
+                    8 -> showPhoneMappings()
                     1 -> {
                         enqueueTv { press(KeyEvent.KEYCODE_BACK) }
                     }
@@ -202,6 +217,61 @@ class StreamActivity: FragmentActivity() {
                 }
             }.create()
         tvMenu?.show()
+    }
+
+    private fun savePhoneMappings() {
+        phoneMappingPreferences.edit().clear().apply {
+            phoneMappings.saved().forEach { (key, value) -> putString(key, value) }
+        }.apply()
+    }
+
+    private fun showPhoneMappings() {
+        val actions = TvPhoneAction.entries
+        val labels = actions.map { action ->
+            val key = phoneMappings.keyFor(action)?.let { KeyEvent.keyCodeToString(it).removePrefix("KEYCODE_") }
+                ?: getString(R.string.tv_key_unassigned)
+            "${getString(action.label)} — $key"
+        }.toTypedArray()
+        mappingDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.tv_phone_mappings)
+            .setItems(labels) { _, index -> capturePhoneKey(actions[index]) }
+            .setNeutralButton(R.string.tv_reset_mappings) { _, _ ->
+                phoneMappings.clear()
+                savePhoneMappings()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        mappingDialog?.show()
+    }
+
+    private fun capturePhoneKey(action: TvPhoneAction) {
+        var pressed: Int? = null
+        captureDialog = AlertDialog.Builder(this)
+            .setTitle(getString(action.label))
+            .setMessage(R.string.tv_capture_phone_key)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create().also { dialog ->
+                dialog.setOnKeyListener { _, code, event ->
+                    if (!TvPhoneKeyMappings.canAssign(code)) {
+                        false
+                    } else {
+                        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) pressed = code
+                        if (event.action == KeyEvent.ACTION_UP && pressed == code) {
+                            if (!event.isCanceled) {
+                                phoneMappings.assign(code, action)
+                                savePhoneMappings()
+                                android.widget.Toast.makeText(this,
+                                    getString(R.string.tv_mapping_saved,
+                                        KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_"), getString(action.label)),
+                                    android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            dialog.dismiss()
+                        }
+                        true
+                    }
+                }
+                dialog.show()
+            }
     }
 
     private fun showAspectMenu() {
@@ -241,6 +311,8 @@ class StreamActivity: FragmentActivity() {
             ?.takeIf { it === this }
             ?.let { currentActivityRef = null }
         tvMenu?.dismiss()
+        mappingDialog?.dismiss()
+        captureDialog?.dismiss()
         aspectDialog?.dismiss()
         tvCommands.close()
         AppScreenOn.unregister(window)
@@ -300,6 +372,7 @@ class StreamActivity: FragmentActivity() {
     }
 
     companion object {
+        private const val EXTRA_TV_RECEIVER = "tv_receiver"
         private val TV_REMOTE_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -310,8 +383,8 @@ class StreamActivity: FragmentActivity() {
 
         private var currentActivityRef: WeakReference<StreamActivity>? = null
 
-        fun createIntent(context: Context): Intent {
-            return Intent(context, StreamActivity::class.java)
+        fun createIntent(context: Context, tvReceiver: Boolean = false): Intent {
+            return Intent(context, StreamActivity::class.java).putExtra(EXTRA_TV_RECEIVER, tvReceiver)
         }
 
         fun dismissActivePictureInPicture() {

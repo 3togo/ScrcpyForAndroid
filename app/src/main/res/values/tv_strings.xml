@@ -59,4 +59,12 @@
     <string name="tv_pointer_help">Arrows move · OK taps · Back opens controls</string>
     <string name="tv_drag_help">Dragging: arrows swipe · OK releases</string>
     <string name="tv_input_failed">Could not send input to phone. Check phone debugging permissions or reconnect.</string>
+    <string name="tv_phone_mappings">Phone control button mappings</string>
+    <string name="tv_phone_play_pause">Phone play / pause</string>
+    <string name="tv_toggle_pointer">Toggle pointer mode</string>
+    <string name="tv_toggle_drag">Start / release phone drag</string>
+    <string name="tv_key_unassigned">Not assigned</string>
+    <string name="tv_reset_mappings">Reset mappings</string>
+    <string name="tv_capture_phone_key">Press and release a spare remote button, such as a color or playback button. Its previous phone assignment will be replaced. Arrows, OK, Back, Menu, Home, and volume remain reserved. Back cancels. Mappings apply only during phone playback in this app.</string>
+    <string name="tv_mapping_saved">%1$s assigned to %2$s</string>
 </resources>

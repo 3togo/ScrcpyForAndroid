@@ -23,6 +23,9 @@
 
 ## TV remote control
 
+See [TV setup and lessons learned](doc/TV.md) for ABI selection, device-detection
+limitations, and the separation between system CEC and phone control.
+
 During playback on Android TV / Google TV, press **Back** or **Menu** to open
 receiver controls. Navigation mode forwards arrows, OK, and playback keys to the
 phone. Select **Use pointer mode** for phone apps that need touch input:
@@ -34,8 +37,47 @@ phone. Select **Use pointer mode** for phone apps that need touch input:
   Recents, and Disconnect actions. Choose **Use navigation mode** to return to
   direct key forwarding.
 
+Choose **Phone control button mappings** in the playback menu to assign a spare
+remote button to phone Back, Home, Recents, play/pause, pointer mode, or drag.
+Select an action, then press and release the desired button. Assignments are
+saved on the receiver and apply only during phone playback. Arrows, OK, Back,
+Menu, Home, and volume remain reserved; **Reset mappings** restores defaults.
+
+TV remote → box communication is handled by the TV/box system HDMI-CEC settings.
+This APK handles box input → phone control; it does not change CEC settings or
+remap buttons in other apps. Launching playback from the TV interface explicitly
+enables receiver controls even on supported boxes reporting tablet firmware.
+The minimum Android version remains Android 8.
+
 The cursor follows the mirrored image in either picture-proportion setting.
 Input requires an active scrcpy control connection and phone debugging permissions.
+
+## Find ADB-accessible TV boxes
+
+With Python 3, Android platform-tools (`adb`), and Linux `iproute2` installed:
+
+```sh
+./scripts/find-adb-tvs.py                         # Detect the local IPv4 subnet
+./scripts/find-adb-tvs.py --cidr 192.168.1.0/24    # Choose a subnet
+./scripts/find-adb-tvs.py --ports 5555,5556        # Choose legacy ADB ports
+```
+
+The script lists **all ADB-accessible devices**, checking open ports, ADB mDNS
+connection services (including dynamic wireless-debugging ports), and existing
+ADB devices. Android version, firmware type, and TV flags are shown as hints;
+a box running tablet firmware is still counted as an accessible device.
+Missing TV flags do not mean a device is not a TV box. You can add a label:
+
+```sh
+./scripts/find-adb-tvs.py --label '192.168.31.57:5555=My TV box'
+```
+
+Labels are user-provided and apply to that run only. Devices needing authorization
+are listed separately. Debugging must already be enabled; the script does not
+pair devices or change their settings. Successful connections remain available
+to `adb`. Discovery cannot find unadvertised ADB services on ports outside the
+selected list.
+Use `--adb /path/to/adb` if platform-tools is not on your PATH.
 
 ## Linux desktop
 

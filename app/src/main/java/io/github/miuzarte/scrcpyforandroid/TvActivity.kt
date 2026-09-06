@@ -120,7 +120,7 @@ class TvActivity : FragmentActivity() {
     private fun connect() {
         val address = host.text.toString().trim()
         if (scrcpy.isStarted()) {
-            startActivity(StreamActivity.createIntent(this))
+            startActivity(StreamActivity.createIntent(this, tvReceiver = true))
             return
         }
         val number = port.text.toString().toIntOrNull()
@@ -129,7 +129,7 @@ class TvActivity : FragmentActivity() {
             return
         }
         if (scrcpy.isStarted()) {
-            startActivity(StreamActivity.createIntent(this))
+            startActivity(StreamActivity.createIntent(this, tvReceiver = true))
             return
         }
         preferences.edit {
@@ -147,7 +147,7 @@ class TvActivity : FragmentActivity() {
                     audio = audio.isChecked, audioPlayback = audio.isChecked))
                 AppScreenOn.acquire()
                 status.setText(R.string.tv_connected)
-                startActivity(StreamActivity.createIntent(this@TvActivity))
+                startActivity(StreamActivity.createIntent(this@TvActivity, tvReceiver = true))
             } catch (error: Exception) {
                 withContext(NonCancellable) { disconnectSession() }
                 if (generateSequence<Throwable>(error) { it.cause }.any {

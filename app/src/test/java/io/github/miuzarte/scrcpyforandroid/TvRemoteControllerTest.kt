@@ -92,4 +92,20 @@ class TvRemoteControllerTest {
         assertFalse(remote.pointer.value.dragging)
     }
 
+    @Test fun mappedActionsControlPhoneAndPointer() = runBlocking {
+        val input = Input()
+        val remote = TvRemoteController(input)
+        remote.perform(TvPhoneAction.POINTER)
+        assertTrue(remote.pointer.value.enabled)
+        remote.perform(TvPhoneAction.DRAG)
+        assertTrue(remote.pointer.value.dragging)
+        remote.perform(TvPhoneAction.HOME)
+        assertFalse(remote.pointer.value.dragging)
+        assertEquals(listOf(0, 1), input.touches.map { it[0] })
+        assertEquals(listOf(0, 1), input.keys.map { it[0] })
+        assertTrue(input.keys.all { it[1] == KeyEvent.KEYCODE_HOME })
+        remote.perform(TvPhoneAction.POINTER)
+        assertFalse(remote.pointer.value.enabled)
+    }
+
 }

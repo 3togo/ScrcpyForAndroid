@@ -84,6 +84,15 @@ class TvRemoteController(private val input: TvRemoteInput) {
         }
     }
 
+    suspend fun perform(action: TvPhoneAction) {
+        action.keycode?.let { press(it); return }
+        when (action) {
+            TvPhoneAction.POINTER -> setPointer(!pointer.value.enabled)
+            TvPhoneAction.DRAG -> toggleDrag()
+            else -> Unit
+        }
+    }
+
     suspend fun press(code: Int) {
         release()
         pressedKeys.add(code)

@@ -1,7 +1,6 @@
 package io.github.miuzarte.scrcpyforandroid.pages
 
 import io.github.miuzarte.scrcpyforandroid.phoneAspectRatio
-import io.github.miuzarte.scrcpyforandroid.isTelevision
 import io.github.miuzarte.scrcpyforandroid.StreamActivity
 import io.github.miuzarte.scrcpyforandroid.nativecore.NativeAdbService
 
@@ -635,7 +634,7 @@ fun FullscreenControlPage(
     BackHandler(enabled = enableBackHandler, onBack = onDismiss)
 
     val tvActivity = androidx.activity.compose.LocalActivity.current as? StreamActivity
-    val phoneMode = tvActivity?.usePhoneAspect?.collectAsState()?.value == true && tvActivity.isTelevision()
+    val phoneMode = tvActivity?.usePhoneAspect?.collectAsState()?.value == true && tvActivity.tvReceiverMode
     var phoneAspect by remember { mutableStateOf<Float?>(null) }
     LaunchedEffect(phoneMode, session.width, session.height) {
         phoneAspect = null
@@ -768,7 +767,7 @@ fun FullscreenControlPage(
                     )
                 },
             )
-            if (tvActivity?.isTelevision() == true) {
+            if (tvActivity?.tvReceiverMode == true) {
                 val pointer = tvActivity.tvRemote?.pointer?.collectAsState()?.value
                 if (pointer?.enabled == true) {
                     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -782,7 +781,7 @@ fun FullscreenControlPage(
             }
         }
 
-        if (tvActivity?.isTelevision() == true) {
+        if (tvActivity?.tvReceiverMode == true) {
             val pointer = tvActivity.tvRemote?.pointer?.collectAsState()?.value
             if (pointer?.enabled == true) Text(
                 text = stringResource(if (pointer.dragging) R.string.tv_drag_help else R.string.tv_pointer_help),
