@@ -105,7 +105,8 @@ final class Backend implements AutoCloseable {
             // A fill crop is deliberately two-stage: crop to the monitor ratio first, then
             // stretch that already-matching frame over the window. The latter cannot distort
             // it, and avoids SDL reintroducing a one-pixel letterbox through rounding.
-            if ((o.fill == Fill.STRETCH && !hasCrop) || (o.stretchCroppedFrame && hasCrop))
+            if ((o.fill == Fill.STRETCH && !hasCrop)
+                    || (o.fill == Fill.CROP_SHORT_EDGE && o.stretchCroppedFrame && hasCrop))
                 args.add("--render-fit=stretched");
         }
         if (hasCrop) args.add("--crop=" + o.crop);

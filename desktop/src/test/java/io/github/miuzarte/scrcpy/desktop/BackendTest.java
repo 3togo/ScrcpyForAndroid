@@ -34,7 +34,9 @@ public final class BackendTest {
             var cropLong = backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true,
                 Backend.Fill.CROP_LONG_EDGE, "1080:1920:0:240", true, ""));
             assert cropLong.contains("--crop=1080:1920:0:240");
-            assert cropLong.contains("--render-fit=stretched");
+            // Long-edge is an invariant: even a bad/stale stretch hint must never distort
+            // portrait into landscape.
+            assert !cropLong.contains("--render-fit=stretched");
             var cropShort = backend.streamCommand("s", new Backend.Options(1920, 60, 8, true, true, true,
                 Backend.Fill.CROP_SHORT_EDGE, "1080:1920:0:240", true, ""));
             assert cropShort.contains("--crop=1080:1920:0:240");
