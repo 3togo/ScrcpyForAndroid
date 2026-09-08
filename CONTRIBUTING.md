@@ -49,6 +49,45 @@ checks pass. Delete the feature branch once merged. Keep `main` buildable.
 
 ## Sync upstream
 
+The interactive helper performs the steps below for you:
+
+```sh
+./sync-upstream.sh
+```
+
+Start on `main` with saved work. It checks the remotes and worktree, removes only
+the recorded Miuix patch, updates local `main` from `origin` by fast-forward,
+and merges upstream on a uniquely named `codex/sync-upstream-YYYY-MM-DD` branch.
+It then prepares the pinned submodules, reapplies the patch, and runs Android,
+Linux backend, and GUI checks. Test output is saved under `build/upstream-sync/`.
+If there are no incoming changes, it reports that and creates no branch.
+
+After the checks pass, choose whether to keep the branch local or push it and
+open a PR to `main`. The helper never merges the PR or pushes `main`. If `gh`
+is unavailable or not signed in, it prints the PR creation link after pushing.
+
+If a merge conflicts, resolve it, stage the resolved files, and run
+`git merge --continue`. For build or patch fixes, commit the changes. Then,
+in the same checkout and on the sync branch, resume with:
+
+```sh
+./sync-upstream.sh --continue
+```
+
+Use `--yes` to approve local steps without prompts; it does **not** publish.
+Add `--publish` to explicitly push the tested branch and create its PR.
+GUI testing uses `xvfb-run` when available, or the current X11/XWayland display.
+On a headless machine, either provide `xvfb-run` or explicitly use `--skip-gui`;
+that omission is recorded in the PR and CI must verify the GUI before merging.
+
+The helper can be tested without network access, real builds, or GitHub writes:
+
+```sh
+python3 scripts/test-sync-upstream.py
+```
+
+### Manual equivalent
+
 Start from a clean parent worktree. Remove only the recorded Miuix patch before
 updating its checkout; the helper refuses conflicting local edits.
 

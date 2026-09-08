@@ -1,0 +1,22 @@
+name: Upstream sync helper
+
+on:
+  push:
+    branches: [main]
+    paths: ['sync-upstream.sh', 'scripts/prepare-miuix.sh', 'scripts/test-sync-upstream.py', '.github/workflows/sync-script.yml']
+  pull_request:
+    branches: [main]
+    paths: ['sync-upstream.sh', 'scripts/prepare-miuix.sh', 'scripts/test-sync-upstream.py', '.github/workflows/sync-script.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Bash syntax
+        run: bash -n sync-upstream.sh scripts/prepare-miuix.sh
+      - name: Exercise the sync helper in isolated local repositories
+        run: python3 scripts/test-sync-upstream.py

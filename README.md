@@ -4,6 +4,8 @@
 
 Development uses `main` plus short-lived feature branches. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for building, upstream syncing, and releases.
+Run `./sync-upstream.sh` for a guided upstream sync with build checks and an
+optional pull request.
 
 <a href="https://github.com/Genymobile/scrcpy/blob/master/app/data/icon.svg" title="Modified from the original version">
   <img src="app/src/main/assets/icon/icon.svg" width="128" height="128" alt="scrcpy" align="right" />
