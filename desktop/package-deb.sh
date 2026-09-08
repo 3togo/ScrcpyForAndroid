@@ -14,12 +14,12 @@ usage() {
     cat <<'HELP'
 Usage: desktop/package-deb.sh [--skip-build] [--install|--no-install] [--output-dir DIR] [-- GRADLE_OPTIONS...]
 
-Builds check + installDist, then creates scrcpy-desktop_VERSION_all.deb.
+Builds check + installDist, then creates scrcaster-desktop_VERSION_all.deb.
 Requires a JDK 17, dpkg-deb, dpkg, and standard Linux shell utilities.
 By default it asks permission to install with apt in an interactive terminal.
 apt installs missing runtime dependencies if available in configured repositories.
 
-  --skip-build       Package an existing desktop/build/install/scrcpy-desktop.
+  --skip-build       Package an existing desktop/build/install/scrcaster-desktop.
   --install          Install the package with apt (sudo when not root), no prompt.
   --no-install       Only build the package; never prompt or invoke apt/sudo.
   --output-dir DIR   Output directory (default: desktop/build/distributions).
@@ -58,12 +58,12 @@ if ! "$skip_build"; then
     fi
 fi
 
-dist_dir="$script_dir/build/install/scrcpy-desktop"
-[[ -f "$dist_dir/bin/scrcpy-desktop" ]] || fail 'Distribution missing; run without --skip-build.'
+dist_dir="$script_dir/build/install/scrcaster-desktop"
+[[ -f "$dist_dir/bin/scrcaster-desktop" ]] || fail 'Distribution missing; run without --skip-build.'
 shopt -s nullglob
-app_jars=("$dist_dir"/lib/scrcpy-desktop-*.jar)
+app_jars=("$dist_dir"/lib/scrcaster-desktop-*.jar)
 ((${#app_jars[@]} == 1)) || fail 'Expected exactly one application jar in the distribution.'
-app_version=${app_jars[0]##*/scrcpy-desktop-}
+app_version=${app_jars[0]##*/scrcaster-desktop-}
 app_version=${app_version%.jar}
 package_version=${DEB_VERSION:-$app_version-1}
 # For a local binary package, reject epochs and unsafe filename/control characters.
@@ -77,33 +77,33 @@ output_dir=$(cd -- "$output_dir" && pwd)
 staging=$(mktemp -d "$output_dir/.deb-stage.XXXXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
 package_root="$staging/root"
-app_root="$package_root/usr/share/scrcpy-desktop"
-doc_root="$package_root/usr/share/doc/scrcpy-desktop"
+app_root="$package_root/usr/share/scrcaster-desktop"
+doc_root="$package_root/usr/share/doc/scrcaster-desktop"
 install -d -m 0755 "$package_root/DEBIAN" "$app_root/bin" "$app_root/lib" \
     "$package_root/usr/bin" "$package_root/usr/share/applications" \
     "$package_root/usr/share/icons/hicolor/scalable/apps" "$doc_root"
-install -m 0755 "$dist_dir/bin/scrcpy-desktop" "$app_root/bin/"
+install -m 0755 "$dist_dir/bin/scrcaster-desktop" "$app_root/bin/"
 install -m 0644 "$dist_dir"/lib/*.jar "$app_root/lib/"
-ln -s ../share/scrcpy-desktop/bin/scrcpy-desktop "$package_root/usr/bin/scrcpy-desktop"
+ln -s ../share/scrcaster-desktop/bin/scrcaster-desktop "$package_root/usr/bin/scrcaster-desktop"
 install -m 0644 "$repo_dir/app/src/main/assets/icon/icon.svg" \
-    "$package_root/usr/share/icons/hicolor/scalable/apps/scrcpy-desktop.svg"
+    "$package_root/usr/share/icons/hicolor/scalable/apps/scrcaster-desktop.svg"
 install -m 0644 "$repo_dir/LICENSE" "$doc_root/copyright"
 gzip -n -c "$repo_dir/doc/LINUX.md" > "$doc_root/README.md.gz"
-cat > "$package_root/usr/share/applications/scrcpy-desktop.desktop" <<'DESKTOP'
+cat > "$package_root/usr/share/applications/scrcaster-desktop.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=Scrcpy for Linux
+Name=ScrCaster
 Comment=Mirror and control Android devices over USB or Wi-Fi
-Exec=scrcpy-desktop
-TryExec=scrcpy-desktop
-Icon=scrcpy-desktop
+Exec=scrcaster-desktop
+TryExec=scrcaster-desktop
+Icon=scrcaster-desktop
 Terminal=false
 Categories=Network;RemoteAccess;
 Keywords=Android;ADB;Mirror;Wireless;
 StartupNotify=false
 DESKTOP
 if command -v desktop-file-validate >/dev/null; then
-    desktop-file-validate "$package_root/usr/share/applications/scrcpy-desktop.desktop"
+    desktop-file-validate "$package_root/usr/share/applications/scrcaster-desktop.desktop"
 fi
 # The fill modes rely on --render-fit, which only exists in scrcpy 4.0+. Most
 # distributions still ship scrcpy 3.x, which cannot satisfy the dependency below.
@@ -118,7 +118,7 @@ if command -v scrcpy >/dev/null 2>&1; then
 fi
 installed_size=$(du -sk "$package_root/usr" | awk '{print $1}')
 cat > "$package_root/DEBIAN/control" <<CONTROL
-Package: scrcpy-desktop
+Package: scrcaster-desktop
 Version: $package_version
 Section: utils
 Priority: optional
@@ -126,7 +126,7 @@ Architecture: all
 Maintainer: $maintainer
 Installed-Size: $installed_size
 Depends: openjdk-17-jre | java17-runtime, adb, scrcpy (>= 4.0)
-Homepage: https://github.com/3togo/ScrcpyForAndroid
+Homepage: https://github.com/3togo/ScrCaster
 Description: Linux desktop frontend for Android mirroring
  Manage USB and wireless Android connections, pair using QR codes,
  and mirror devices with native scrcpy. Includes stream settings,
@@ -135,8 +135,8 @@ CONTROL
 # Do not inherit the builder's restrictive umask into installed package files.
 find "$package_root" -type d -exec chmod 0755 {} +
 find "$package_root" -type f -exec chmod 0644 {} +
-chmod 0755 "$app_root/bin/scrcpy-desktop"
-package_path="$output_dir/scrcpy-desktop_${package_version}_all.deb"
+chmod 0755 "$app_root/bin/scrcaster-desktop"
+package_path="$output_dir/scrcaster-desktop_${package_version}_all.deb"
 dpkg-deb --root-owner-group --build "$package_root" "$staging/package.deb"
 mv -f -- "$staging/package.deb" "$package_path"
 printf '\nCreated: %s\nInstall: sudo apt install "%s"\n' "$package_path" "$package_path"
@@ -166,7 +166,7 @@ install_package() {
     fi
 
     # A rebuild keeps the same version, and apt silently skips a local .deb whose
-    # version is already installed ("scrcpy-desktop is already the newest version"),
+    # version is already installed ("scrcaster-desktop is already the newest version"),
     # so the new build would never reach the system. --reinstall forces the unpack.
     if ((EUID == 0)); then
         apt install --reinstall -- "$deb_path" || status=$?

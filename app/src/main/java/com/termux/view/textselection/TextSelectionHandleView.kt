@@ -12,7 +12,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.PopupWindow
 
-import io.github.miuzarte.scrcpyforandroid.R
+import io.github.3togo.scrcaster.R
 import com.termux.view.TerminalView
 import com.termux.view.support.PopupWindowCompatGingerbread
 

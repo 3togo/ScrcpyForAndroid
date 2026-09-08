@@ -28,7 +28,7 @@ From the repository root:
 
 ```sh
 bash gradlew -p desktop check installDist
-./desktop/build/install/scrcpy-desktop/bin/scrcpy-desktop
+./desktop/build/install/scrcaster-desktop/bin/scrcaster-desktop
 ```
 
 For development, use `bash gradlew -p desktop run`. The standalone desktop build
@@ -43,8 +43,8 @@ Create a portable application archive with:
 bash gradlew -p desktop distTar
 ```
 
-Extract `desktop/build/distributions/scrcpy-desktop-0.5.5.tar` and run
-`bin/scrcpy-desktop` inside the extracted directory. Java, adb, and scrcpy are
+Extract `desktop/build/distributions/scrcaster-desktop-0.5.5.tar` and run
+`bin/scrcaster-desktop` inside the extracted directory. Java, adb, and scrcpy are
 runtime prerequisites; the archive does not bundle them.
 
 ### Debian / Ubuntu package
@@ -64,18 +64,18 @@ the built package remains available. Non-interactive runs never install anything
 Use `--no-install` to suppress the prompt, or install later with:
 
 ```sh
-sudo apt install ./desktop/build/distributions/scrcpy-desktop_0.5.5-1_all.deb
+sudo apt install ./desktop/build/distributions/scrcaster-desktop_0.5.5-1_all.deb
 ```
 
 The package installs an application-menu
-entry, icon, and `scrcpy-desktop` command. It bundles the Java libraries and
+entry, icon, and `scrcaster-desktop` command. It bundles the Java libraries and
 declares dependencies on a graphical Java 17+ runtime, adb, and scrcpy 4.0+.
 Your configured apt repositories must provide those dependencies; an unmanaged
 scrcpy installation in `/usr/local` does not satisfy apt's dependency tracking.
 Many distributions still package scrcpy 3.x, so `apt install` can report
 `scrcpy (>= 4.0)` as unsatisfiable. Install scrcpy 4.0+ from the official
 instructions first, or bypass the check with
-`sudo dpkg -i --force-depends scrcpy-desktop_VERSION_all.deb`.
+`sudo dpkg -i --force-depends scrcaster-desktop_VERSION_all.deb`.
 
 Use `--skip-build` to package an existing `installDist`, or `--output-dir DIR`
 to choose another output directory. Gradle flags follow `--`, for example

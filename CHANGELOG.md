@@ -3,30 +3,30 @@
 ## 0.5.5
 
 - 修复: 在安卓 17 下请求 `ACCESS_LOCAL_NETWORK` 权限以连接局域网设备
-  - [pr#99](https://github.com/Miuzarte/ScrcpyForAndroid/pull/99)
+  - [pr#99](https://github.com/3togo/ScrCaster/pull/99)
 - 改进: `AppRuntime` 包装多语言 `Context`
-  - [pr#86](https://github.com/Miuzarte/ScrcpyForAndroid/pull/86)
+  - [pr#86](https://github.com/3togo/ScrCaster/pull/86)
 
 ## 0.5.4
 
 - 修复: 在安卓 10 使用了不允许的认证方式组合
-  - [pr#81](https://github.com/Miuzarte/ScrcpyForAndroid/pull/81)
+  - [pr#81](https://github.com/3togo/ScrCaster/pull/81)
 - 修复: 在安卓 13 以下禁用悬浮底栏
   - 悬浮底栏使用 `InteractiveHighlight` (miuix/animation), 其内部无条件构造 API 33+ 引入的 `android.graphics.RuntimeShader`
-  - [pr#82](https://github.com/Miuzarte/ScrcpyForAndroid/pull/82)
+  - [pr#82](https://github.com/3togo/ScrCaster/pull/82)
 
 ## 0.5.3
 
 - 依赖: 更新 submodule/miuix
 - 修复: 锁屏密码填充界面不跟随应用语言设置
-  - [pr#79](https://github.com/Miuzarte/ScrcpyForAndroid/pull/79)
+  - [pr#79](https://github.com/3togo/ScrCaster/pull/79)
 - 修复: 文件管理跳转路径/创建文件夹输入框光标错乱
-  - [pr#80](https://github.com/Miuzarte/ScrcpyForAndroid/pull/80)
+  - [pr#80](https://github.com/3togo/ScrCaster/pull/80)
 
 ## 0.5.2
 
 - 修复: 特定设备上需要特地准备 Looper
-  - [issues#63](https://github.com/Miuzarte/ScrcpyForAndroid/issues/63)
+  - [issues#63](https://github.com/3togo/ScrCaster/issues/63)
 - 修复: 本机输入法无法向被控端输入纯空格字符串
 
 ## 0.5.1

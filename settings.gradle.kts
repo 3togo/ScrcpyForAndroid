@@ -28,7 +28,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Scrcpy"
+rootProject.name = "ScrCaster"
 includeBuild("submodule/miuix")
 include(":app")
 include(":core")

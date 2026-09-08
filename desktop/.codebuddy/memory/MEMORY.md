@@ -6,7 +6,7 @@
   binary + `/usr/local/share/scrcpy/scrcpy-server`). apt/dpkg only knows the
   distro package `scrcpy 3.3.4-1` (`/usr/bin/scrcpy`). So `scrcpy --version`
   (4.1) and `apt-cache policy scrcpy` (3.3.4) disagree — this is expected.
-- **`scrcpy-desktop` deb declares `Depends: scrcpy (>= 4.0)`** (in
+- **`scrcaster-desktop` deb declares `Depends: scrcpy (>= 4.0)`** (in
   `desktop/package-deb.sh`). User REQUIRES this to stay at >= 4.0; do NOT lower it.
   Solution: `build.sh` now auto-installs the **real upstream scrcpy 4.1 deb**
   before the desktop deb install. `ensure_scrcpy()` in `build.sh`:
@@ -25,7 +25,7 @@
     been REMOVED — prefer the real deb above.
   - **Verified working (2026-09-06)**: `./build.sh --desktop --install` installed
     `scrcpy 4.0` (the jakbin .deb's *package* version is `4.0` even though the
-    release tag is 4.1 — still satisfies `>= 4.0`) and `scrcpy-desktop 0.5.5-1`.
+    release tag is 4.1 — still satisfies `>= 4.0`) and `scrcaster-desktop 0.5.5-1`.
   - Two benign messages appear at the end and are NOT failures:
     (a) `GDBus.Error:org.freedesktop.DBus.Error.TimedOut ... org.freedesktop.PackageKit`
         — GNOME PackageKit failed to activate to notice the change;
@@ -50,7 +50,7 @@
     `--local` (manual /usr/local files, uses sudo), `--apt` (apt purge), `--all`, `-y`.
     It skips any path owned by a dpkg package, and simulates `apt-get -s purge` to show
     cascading removals.
-  - **Caution**: `apt purge scrcpy` also removes **scrcpy-desktop** (reverse dependency).
+  - **Caution**: `apt purge scrcpy` also removes **scrcaster-desktop** (reverse dependency).
     To drop the duplicate manual install without breaking the desktop app, use
     `--local`, never `--apt`.
 - `adb` is apt-installed (`1:34.0.5-12build1`); there is also a manual

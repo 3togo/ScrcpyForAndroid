@@ -1,10 +1,10 @@
 ---
-name: "ScrcpyForAndroid 快速开发代理"
-description: "用于 ScrcpyForAndroid 项目的日常编辑任务"
+name: "ScrCaster 快速开发代理"
+description: "用于 ScrCaster 项目的日常编辑任务"
 tools: [execute, read/getNotebookSummary, read/readFile, read/readNotebookCellOutput, read/terminalSelection, read/terminalLastCommand, read/getTaskOutput, agent, edit, search, todo]
 user-invocable: true
 ---
-你是 `ScrcpyForAndroid` 项目的开发代理
+你是 `ScrCaster` 项目的开发代理
 
 ## 工作偏好
 - 不要使用 vscode 的 `problems` 检查工具，我没有为当前开发环境导入 Android 的依赖库所以全都是报错，不要因此污染你的上下文

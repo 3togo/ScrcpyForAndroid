@@ -1,6 +1,6 @@
 <!-- markdownlint-disable MD033 -->
 
-# Scrcpy for Android
+# ScrCaster
 
 <a href="https://github.com/Genymobile/scrcpy/blob/master/app/data/icon.svg" title="Modified from the original version">
   <img src="app/src/main/assets/icon/icon.svg" width="128" height="128" alt="scrcpy" align="right" />
@@ -19,7 +19,7 @@
 
 ## 下载
 
-\> [releases](https://github.com/Miuzarte/ScrcpyForAndroid/releases)
+\> [releases](https://github.com/3togo/ScrCaster/releases)
 
 ## TV remote control
 
@@ -88,7 +88,7 @@ for requirements and current feature scope.
 
 ```sh
 bash gradlew -p desktop check installDist
-./desktop/build/install/scrcpy-desktop/bin/scrcpy-desktop
+./desktop/build/install/scrcaster-desktop/bin/scrcaster-desktop
 ```
 
 ## Building Android APKs on Linux
@@ -214,8 +214,8 @@ Debug APKs are written to `app/build/outputs/apk/debug/`.
    - 每个 Slider 选项的标题都可以点开自己输入值
 
 4. 录制/下载的文件在哪
-   - /sdcard/Movies/Scrcpy/
-   - /sdcard/Download/Scrcpy/
+   - /sdcard/Movies/ScrCaster/
+   - /sdcard/Download/ScrCaster/
 
 5. 横屏模式对左撇子不太友好
    - 右上角有按钮可以对调方向
@@ -230,8 +230,8 @@ Debug APKs are written to `app/build/outputs/apk/debug/`.
 - Android NDK `29.0.14206865`
 
 ```bash
-git clone --recursive https://github.com/Miuzarte/ScrcpyForAndroid.git
-cd ScrcpyForAndroid
+git clone --recursive https://github.com/3togo/ScrCaster.git
+cd ScrCaster
 ./gradlew assembleDebug
 ```
 
@@ -263,10 +263,10 @@ specific abi:
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=Miuzarte%2FScrcpyForAndroid&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=3togo%2FScrCaster&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Miuzarte/ScrcpyForAndroid&type=date&theme=dark&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Miuzarte/ScrcpyForAndroid&type=date&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Miuzarte/ScrcpyForAndroid&type=date&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=3togo/ScrCaster&type=date&theme=dark&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=3togo/ScrCaster&type=date&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=3togo/ScrCaster&type=date&legend=top-left&sealed_token=ZAxkizLKrqW0OrnbwXmuzTskU0mzMsjF--hGG8WW4F38bJGglf17mqXYZ6aQvePlP7ocCCS39PHNQYgjyLIEGcbU_8qQYXZ-YPs5N8slD0MphyJmujabc0AUKWMIpdq6iqSGifrLx-rQGBd26YTwEPikYV6SKjGVAxPhoMmMgzyJ13RtkP3rSm4-E2sN" />
  </picture>
 </a>

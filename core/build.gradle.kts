@@ -1,6 +1,6 @@
 plugins { `java-library` }
 
-group = "io.github.miuzarte"
+group = "io.github.3togo"
 version = "0.5.5"
 
 java {

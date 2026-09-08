@@ -147,7 +147,7 @@ if [[ ! "$java_major" =~ ^[0-9]+$ ]] || ((java_major < 17)); then
     die "Java 17+ is required; install JDK 21 or fix JAVA_HOME."
 fi
 
-# scrcpy-desktop Depends: scrcpy (>= 4.0) (see desktop/package-deb.sh), but most
+# scrcaster-desktop Depends: scrcpy (>= 4.0) (see desktop/package-deb.sh), but most
 # distros still ship 3.x, and a manually installed /usr/local/bin/scrcpy is invisible
 # to apt. Install the upstream 4.1 .deb so apt can resolve the dependency.
 scrcpy_min_major=4

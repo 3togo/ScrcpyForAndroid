@@ -20,7 +20,7 @@ val buildUniversalApk = configuredAbiList.size > 1
 val singleAbi = configuredAbiList.singleOrNull()
 
 android {
-    namespace = "io.github.miuzarte.scrcpyforandroid"
+    namespace = "io.github.3togo.scrcaster"
     compileSdk = 37
 
     signingConfigs {
@@ -56,7 +56,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.miuzarte.scrcpyforandroid"
+        applicationId = "io.github.3togo.scrcaster"
         minSdk = 26
         targetSdk = 37
         versionCode = 41

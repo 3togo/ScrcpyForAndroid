@@ -4,7 +4,7 @@
 # Two independent installations can coexist:
 #   local - installed from the upstream tarball into /usr/local (NOT dpkg-managed)
 #   apt   - installed as a Debian package (e.g. the jakbin scrcpy 4.0 .deb that
-#           build.sh installs to satisfy scrcpy-desktop's "scrcpy (>= 4.0)")
+#           build.sh installs to satisfy scrcaster-desktop's "scrcpy (>= 4.0)")
 #
 # SAFE BY DEFAULT: with no mode it only reports what it found / would remove.
 # Pass --local, --apt or --all (plus -y, or confirm interactively) to actually delete.
@@ -107,7 +107,7 @@ fi
 running="$(command -v scrcpy || true)"
 info "on PATH     : ${running:-none}$([[ -n "$running" ]] && printf ' (%s)' "$(scrcpy --version 2>/dev/null | head -1 || echo unknown)")"
 
-# What would apt take with it? (scrcpy-desktop depends on scrcpy, so purging scrcpy
+# What would apt take with it? (scrcaster-desktop depends on scrcpy, so purging scrcpy
 # can remove the desktop app too - always show this before doing anything.)
 apt_removals=()
 if [[ -n "$apt_version" ]] && command -v apt-get >/dev/null 2>&1; then
@@ -120,8 +120,8 @@ if ((${#apt_removals[@]})); then
     log "apt would also remove:"
     for p in "${apt_removals[@]}"; do info "  - $p"; done
     for p in "${apt_removals[@]}"; do
-        if [[ "$p" == scrcpy-desktop ]]; then
-            warn "purging scrcpy also removes scrcpy-desktop (it depends on scrcpy)."
+        if [[ "$p" == scrcaster-desktop ]]; then
+            warn "purging scrcpy also removes scrcaster-desktop (it depends on scrcpy)."
         fi
     done
 fi
