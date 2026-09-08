@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.6.0
+
+- 新增: 有线 ADB
+  - [pr#85](https://github.com/Miuzarte/ScrcpyForAndroid/pull/85)
+
+## 0.5.6
+
+- 新增: 手柄支持
+  - 震动回传的复杂度过高, 不做
+
 ## 0.5.5
 
 - 修复: 在安卓 17 下请求 `ACCESS_LOCAL_NETWORK` 权限以连接局域网设备

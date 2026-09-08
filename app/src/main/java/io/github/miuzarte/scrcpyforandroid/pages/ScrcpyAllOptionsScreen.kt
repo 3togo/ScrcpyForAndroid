@@ -73,16 +73,9 @@ internal fun ScrcpyAllOptionsScreen(
     val qdBundleShared by quickDevices.bundleState.collectAsState()
     val soBundleShared by scrcpyOptions.bundleState.collectAsState()
     val scrcpyProfilesState by scrcpyProfiles.state.collectAsState()
-    val initialSelectedProfileId = remember(qdBundleShared.quickDevicesList) {
-        val currentTarget = AppRuntime.currentConnectionTarget
-        if (currentTarget == null) {
-            ScrcpyOptions.GLOBAL_PROFILE_ID
-        } else {
-            DeviceShortcuts.unmarshalFrom(qdBundleShared.quickDevicesList)
-                .firstOrNull { it.matchesAddress(currentTarget) }
-                ?.scrcpyProfileId
-                ?: ScrcpyOptions.GLOBAL_PROFILE_ID
-        }
+    val initialSelectedProfileId = remember {
+        // 直接读 session 级状态, 不依赖快捷设备
+        AppRuntime.currentConnectionProfileId.value
     }
     val selectedProfileIdState = rememberSaveable(initialSelectedProfileId) {
         mutableStateOf(initialSelectedProfileId)
@@ -112,11 +105,18 @@ internal fun ScrcpyAllOptionsScreen(
     val currentConnectedDeviceName = remember(qdBundleShared.quickDevicesList) {
         val currentTarget = AppRuntime.currentConnectionTarget
         if (currentTarget == null) null
-        else DeviceShortcuts.unmarshalFrom(qdBundleShared.quickDevicesList)
-            .get(currentTarget.host, currentTarget.port)
-            ?.name
-            ?.ifBlank { currentTarget.host }
-            ?: currentTarget.host
+        else {
+            // 优先使用连接信息中的真实设备型号 (USB 连接的 host 是 VID/PID, 不适合展示)
+            val info = AppRuntime.currentConnectedDevice
+            info?.let {
+                if (info.serial.isNotBlank()) "${info.model} (${info.serial})" else info.model
+            }?.takeIf { it.isNotBlank() }
+                ?: DeviceShortcuts.unmarshalFrom(qdBundleShared.quickDevicesList)
+                    .get(currentTarget.host, currentTarget.port)
+                    ?.name
+                    ?.ifBlank { currentTarget.host }
+                ?: currentTarget.host
+        }
     }
     var activeProfileDialog by rememberSaveable { mutableStateOf<ProfileDialogMode?>(null) }
     var profileDialogTargetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -216,6 +216,7 @@ internal fun ScrcpyAllOptionsScreen(
                                 scope.launch {
                                     saveBundleForProfile(selectedProfileId, soBundleState.value)
                                     bindCurrentConnectedDevice(nextProfileId)
+                                    AppRuntime.currentConnectionProfileId.value = nextProfileId
                                     selectedProfileId = nextProfileId
                                     val profileName = profileTabs.getOrElse(index) { textGlobal }
                                     currentConnectedDeviceName?.let { deviceName ->
@@ -288,6 +289,7 @@ internal fun ScrcpyAllOptionsScreen(
                         )
                         selectedProfileId = created.id
                         bindCurrentConnectedDevice(created.id)
+                        AppRuntime.currentConnectionProfileId.value = created.id
                     }
 
                     ProfileDialogMode.Rename -> {
@@ -347,8 +349,10 @@ internal fun ScrcpyAllOptionsScreen(
                 val deleted = scrcpyProfiles.deleteProfile(profileId)
                 if (deleted) {
                     rebindDeletedProfileReferences(profileId)
-                    if (selectedProfileId == profileId)
+                    if (selectedProfileId == profileId) {
                         selectedProfileId = ScrcpyOptions.GLOBAL_PROFILE_ID
+                        AppRuntime.currentConnectionProfileId.value = ScrcpyOptions.GLOBAL_PROFILE_ID
+                    }
                 }
                 deletingProfileId = null
             }
@@ -1780,6 +1784,16 @@ internal fun ScrcpyAllOptionsPage(
                     onCheckedChange = {
                         soBundle = soBundle.copy(
                             mouseHover = !it,
+                        )
+                    },
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.scrcpyopt_gamepad),
+                    summary = "--gamepad=uhid",
+                    checked = soBundle.gamepad,
+                    onCheckedChange = {
+                        soBundle = soBundle.copy(
+                            gamepad = it,
                         )
                     },
                 )

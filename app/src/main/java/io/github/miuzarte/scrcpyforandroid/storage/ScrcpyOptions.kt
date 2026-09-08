@@ -212,6 +212,10 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
             booleanPreferencesKey("mouse_hover"),
             true,
         )
+        val GAMEPAD = Pair(
+            booleanPreferencesKey("gamepad"),
+            true,
+        )
         val CLEANUP = Pair(
             booleanPreferencesKey("cleanup"),
             true,
@@ -350,6 +354,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
             clipboardAutosync = CLIPBOARD_AUTOSYNC.defaultValue,
             downsizeOnError = DOWNSIZE_ON_ERROR.defaultValue,
             mouseHover = MOUSE_HOVER.defaultValue,
+            gamepad = GAMEPAD.defaultValue,
             cleanup = CLEANUP.defaultValue,
             powerOn = POWER_ON.defaultValue,
             video = VIDEO.defaultValue,
@@ -425,6 +430,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         val clipboardAutosync: Boolean,
         val downsizeOnError: Boolean,
         val mouseHover: Boolean,
+        val gamepad: Boolean,
         val cleanup: Boolean,
         val powerOn: Boolean,
         val video: Boolean,
@@ -498,6 +504,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         bundleField(LEGACY_PASTE) { it.legacyPaste },
         bundleField(CLIPBOARD_AUTOSYNC) { it.clipboardAutosync },
         bundleField(MOUSE_HOVER) { it.mouseHover },
+        bundleField(GAMEPAD) { it.gamepad },
         bundleField(CLEANUP) { it.cleanup },
         bundleField(POWER_ON) { it.powerOn },
         bundleField(VIDEO) { it.video },
@@ -573,6 +580,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         clipboardAutosync = preferences.read(CLIPBOARD_AUTOSYNC),
         downsizeOnError = preferences.read(DOWNSIZE_ON_ERROR),
         mouseHover = preferences.read(MOUSE_HOVER),
+        gamepad = preferences.read(GAMEPAD),
         cleanup = preferences.read(CLEANUP),
         powerOn = preferences.read(POWER_ON),
         video = preferences.read(VIDEO),
@@ -662,6 +670,7 @@ class ScrcpyOptions(context: Context): Settings(context, "ScrcpyOptions") {
         clipboardAutosync = bundle.clipboardAutosync,
         downsizeOnError = bundle.downsizeOnError,
         mouseHover = bundle.mouseHover,
+        gamepad = bundle.gamepad,
         cleanup = bundle.cleanup,
         powerOn = bundle.powerOn,
         video = bundle.video,
@@ -734,6 +743,7 @@ internal fun encodeBundleToJson(bundle: ScrcpyOptions.Bundle): JSONObject =
         .put("clipboardAutosync", bundle.clipboardAutosync)
         .put("downsizeOnError", bundle.downsizeOnError)
         .put("mouseHover", bundle.mouseHover)
+        .put("gamepad", bundle.gamepad)
         .put("cleanup", bundle.cleanup)
         .put("powerOn", bundle.powerOn)
         .put("video", bundle.video)
@@ -951,6 +961,10 @@ internal fun decodeBundleFromJson(bundleJson: JSONObject?): ScrcpyOptions.Bundle
         mouseHover = json.optBooleanOrDefault(
             "mouseHover",
             ScrcpyOptions.MOUSE_HOVER.defaultValue,
+        ),
+        gamepad = json.optBooleanOrDefault(
+            "gamepad",
+            ScrcpyOptions.GAMEPAD.defaultValue,
         ),
         cleanup = json.optBooleanOrDefault(
             "cleanup",

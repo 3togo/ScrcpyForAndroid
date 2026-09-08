@@ -464,7 +464,7 @@ internal fun ConfigPanel(
     onStart: () -> Unit,
     onStop: () -> Unit,
     sessionInfo: Scrcpy.Session.SessionInfo?,
-    onDisconnect: () -> Unit = {},
+    onDisconnect: (() -> Unit)? = null,
     showFullscreenAction: Boolean = false,
     onOpenFullscreen: () -> Unit = {},
     reverseSideActions: Boolean = false,
@@ -709,11 +709,11 @@ internal fun ConfigPanel(
 
             @Composable
             fun DisconnectButton() {
-                if (isQuickConnected) TextButton(
+                if (isQuickConnected && onDisconnect != null) TextButton(
                     text = stringResource(R.string.button_disconnect),
                     onClick = {
                         haptic.contextClick()
-                        onDisconnect()
+                        onDisconnect?.invoke()
                     },
                     modifier = Modifier.weight(sideButtonWeight),
                     enabled = !busy,
@@ -953,6 +953,9 @@ fun ScrcpyVideoSurface(
     onImeCommitText: (suspend (String) -> Unit)? = null,
     onImeDeleteSurroundingText: (suspend (beforeLength: Int, afterLength: Int) -> Unit)? = null,
     onImeKeyEvent: (suspend (KeyEvent) -> Boolean)? = null,
+    gamepadCaptureEnabled: Boolean = false,
+    onGamepadKeyEvent: ((KeyEvent) -> Boolean)? = null,
+    onGamepadMotionEvent: ((MotionEvent) -> Boolean)? = null,
 ) {
 
     val taskScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
@@ -985,6 +988,10 @@ fun ScrcpyVideoSurface(
         val surfaceView = currentSurfaceView ?: return@LaunchedEffect
         surfaceView.setCommitTextEnabled(true)
         LocalInputService.showSoftKeyboard(surfaceView)
+    }
+
+    LaunchedEffect(gamepadCaptureEnabled, currentSurfaceView) {
+        currentSurfaceView?.setGamepadCaptureEnabled(gamepadCaptureEnabled)
     }
 
     DisposableEffect(lifecycleOwner, session, currentSurface) {
@@ -1031,6 +1038,8 @@ fun ScrcpyVideoSurface(
         factory = { context ->
             ScrcpyInputSurfaceView(context).apply {
                 currentSurfaceView = this
+                this.onGamepadKeyEvent = onGamepadKeyEvent
+                this.onGamepadMotionEvent = onGamepadMotionEvent
                 inputCallbacks = object: ScrcpyInputSurfaceView.InputCallbacks {
                     override fun handleKeyEvent(event: KeyEvent): Boolean {
                         val handler = onImeKeyEvent ?: return false
@@ -1124,6 +1133,7 @@ internal fun DeviceTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onAction: () -> Unit,
+    onCancelAction: () -> Unit,
     onEditorSave: (DeviceShortcut) -> Unit,
     onEditorDelete: () -> Unit,
     onEditorCancel: () -> Unit,
@@ -1237,20 +1247,26 @@ internal fun DeviceTile(
                 if (actionInProgress) {
                     CircularProgressIndicator(progress = null)
                     Spacer(Modifier.width(UiSpacing.Medium))
+                    TextButton(
+                        text = stringResource(R.string.button_cancel),
+                        onClick = onCancelAction,
+                        colors = ButtonDefaults.textButtonColors(),
+                    )
+                } else {
+                    TextButton(
+                        text = stringResource(
+                            if (!isConnected) R.string.button_connect
+                            else R.string.button_disconnect,
+                        ),
+                        onClick = onAction,
+                        enabled = actionEnabled,
+                        colors =
+                            if (!isConnected && device.startScrcpyOnConnect)
+                                ButtonDefaults.textButtonColorsPrimary()
+                            else
+                                ButtonDefaults.textButtonColors(),
+                    )
                 }
-                TextButton(
-                    text = stringResource(
-                        if (!isConnected) R.string.button_connect
-                        else R.string.button_disconnect,
-                    ),
-                    onClick = onAction,
-                    enabled = actionEnabled && !actionInProgress,
-                    colors =
-                        if (!isConnected && device.startScrcpyOnConnect)
-                            ButtonDefaults.textButtonColorsPrimary()
-                        else
-                            ButtonDefaults.textButtonColors(),
-                )
             }
         }
 
@@ -1399,6 +1415,7 @@ internal fun DeviceTileList(
     onClick: (DeviceShortcut) -> Unit,
     onLongClick: (DeviceShortcut) -> Unit,
     onAction: (DeviceShortcut) -> Unit,
+    onCancelAction: (DeviceShortcut) -> Unit,
     onEditorSave: (DeviceShortcut, DeviceShortcut) -> Unit,
     onEditorDelete: (DeviceShortcut) -> Unit,
     onEditorCancel: () -> Unit,
@@ -1421,6 +1438,7 @@ internal fun DeviceTileList(
                 onClick = { onClick(device) },
                 onLongClick = { onLongClick(device) },
                 onAction = { onAction(device) },
+                onCancelAction = { onCancelAction(device) },
                 onEditorSave = { updated -> onEditorSave(device, updated) },
                 onEditorDelete = { onEditorDelete(device) },
                 onEditorCancel = onEditorCancel,
@@ -1435,7 +1453,9 @@ internal fun QuickConnectCard(
     onValueChange: (String) -> Unit,
     onFocusLost: (() -> Unit)? = null,
     onConnect: () -> Unit,
+    onCancelConnect: () -> Unit,
     onAddDevice: () -> Unit,
+    connecting: Boolean = false,
     enabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -1490,16 +1510,25 @@ internal fun QuickConnectCard(
                     modifier = Modifier.weight(1f),
                     enabled = enabled,
                 )
-                TextButton(
-                    text = stringResource(R.string.button_direct_connect),
-                    onClick = {
-                        haptic.confirm()
-                        onConnect()
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = enabled,
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
+                if (connecting) {
+                    TextButton(
+                        text = stringResource(R.string.button_cancel),
+                        onClick = onCancelConnect,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColors(),
+                    )
+                } else {
+                    TextButton(
+                        text = stringResource(R.string.button_direct_connect),
+                        onClick = {
+                            haptic.confirm()
+                            onConnect()
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = enabled,
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
             }
         }
     }

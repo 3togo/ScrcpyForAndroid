@@ -59,8 +59,8 @@ android {
         applicationId = "io.github.togo3.scrcaster"
         minSdk = 26
         targetSdk = 37
-        versionCode = 41
-        versionName = "0.5.5"
+        versionCode = 43
+        versionName = "0.6.0"
 
         externalNativeBuild {
             cmake {
