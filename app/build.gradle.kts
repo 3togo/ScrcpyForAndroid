@@ -20,7 +20,7 @@ val buildUniversalApk = configuredAbiList.size > 1
 val singleAbi = configuredAbiList.singleOrNull()
 
 android {
-    namespace = "io.github.togo3.scrcaster"
+    namespace = "io.github.miuzarte.scrcpyforandroid"
     compileSdk = 37
 
     signingConfigs {
