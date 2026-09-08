@@ -12,6 +12,7 @@ For a new clone, configure the upstream remote once:
 
 ```sh
 git remote add upstream https://github.com/Miuzarte/ScrcpyForAndroid.git
+git remote set-url --push upstream DISABLED
 git config remote.upstream.tagOpt --no-tags
 git config remote.pushDefault origin
 git config pull.ff only
