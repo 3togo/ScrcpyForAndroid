@@ -6,17 +6,18 @@ cd "$project_dir"
 
 usage() {
     cat <<'EOF'
-Usage: ./build.sh [--accept-licenses] [--skip-sdk-setup] [Gradle arguments...]
+Usage: ./build.sh [--setup-sdk [--accept-licenses]] [Gradle arguments...]
        ./build.sh --desktop [Gradle arguments...]
        ./build.sh --install [apk|deb|both] [Gradle arguments...]
 
-By default, prepare the Android SDK and build debug APKs (assembleDebug).
-Missing SDK command-line tools, platform, build-tools, NDK and CMake are installed.
-SDK licenses are displayed for interactive acceptance before building.
+By default, use the existing Android SDK and build debug APKs (assembleDebug).
+With --setup-sdk, install missing SDK command-line tools, platform, build-tools,
+NDK and CMake, and display SDK licenses for acceptance before building.
 
+  --setup-sdk       Prepare the Android SDK before building.
   --accept-licenses  Answer yes to Android SDK license prompts (for CI/SSH).
-                    Use only if you agree to the Android SDK license terms.
-  --skip-sdk-setup   Use an already prepared SDK; useful for offline builds.
+                    Use with --setup-sdk only if you agree to the license terms.
+  --skip-sdk-setup   Use an already prepared SDK (default).
   --desktop         Build the Linux desktop app without Android SDK setup.
                     Default tasks: check installDist.
   --install [WHAT]  Build, then install what was built:
@@ -32,9 +33,10 @@ SDK licenses are displayed for interactive acceptance before building.
 
 Examples:
   ./build.sh
-  ./build.sh --accept-licenses
-  ./build.sh --accept-licenses clean assembleDebug -PabiList=arm64-v8a
-  ./build.sh --skip-sdk-setup assembleDebug --offline
+  ./build.sh --setup-sdk
+  ./build.sh --setup-sdk --accept-licenses
+  ./build.sh clean assembleDebug -PabiList=arm64-v8a
+  ./build.sh assembleDebug --offline
   ./build.sh --desktop
   ./build.sh --desktop --install
   ./build.sh --install          # menu: 1) apk  2) deb  3) both
@@ -46,7 +48,7 @@ SDK location: local.properties sdk.dir, ANDROID_HOME, ANDROID_SDK_ROOT,
 then an existing SDK in ~/Android/Sdk, ~/Android or ~/.android.
 A fresh SDK defaults to ~/Android/Sdk. SDKMANAGER can select a specific tool.
 APK installation uses adb from the SDK, from $ADB, or from PATH. With more
-than one device attached, an interactive prompt lets you choose one; in a
+than one device attached, choose device numbers (e.g. 1,2) or all; in a
 non-interactive shell set ANDROID_SERIAL to select the target device.
 Requires Bash, Java 17+ (JDK 21 recommended), and Git for missing submodules.
 Automatic command-line tools download requires Linux x86_64, curl, unzip and
@@ -59,7 +61,7 @@ log() { printf '\n==> %s\n' "$*"; }
 require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command missing: $1"; }
 
 accept_licenses=false
-skip_sdk_setup=false
+skip_sdk_setup=true
 desktop=false
 install_requested=false
 install_target=""
@@ -68,6 +70,7 @@ user_gradle_args=false
 while (($#)); do
     case "$1" in
         --accept-licenses) accept_licenses=true ;;
+        --setup-sdk) skip_sdk_setup=false ;;
         --skip-sdk-setup) skip_sdk_setup=true ;;
         --desktop) desktop=true ;;
         --install)
@@ -246,7 +249,7 @@ build_desktop() {
     fi
 }
 
-# Install the freshly built debug APK on the connected device.
+# Install the freshly built debug APK on the selected connected devices.
 install_apk() {
     local adb="${ADB:-}"
     if [[ -z "$adb" ]]; then
@@ -260,16 +263,20 @@ install_apk() {
     local -a adb_cmd=("$adb")
     [[ -z "${ANDROID_SERIAL:-}" ]] || adb_cmd+=(-s "$ANDROID_SERIAL")
 
-    local devices device_count=0 serial chosen='' index=1 answer=''
+    local devices device_count=0 serial index=1 answer='' choice
+    local -a available_devices=() selected_devices=() choices=() selected_indices=()
     devices="$("${adb_cmd[@]}" devices | awk 'NR > 1 && $2 == "device" {print $1}')"
     [[ -n "$devices" ]] || die "No Android device connected. Connect one, start adb, or set ANDROID_SERIAL."
     while IFS= read -r serial; do
-        [[ -n "$serial" ]] && device_count=$((device_count + 1))
+        [[ -n "$serial" ]] && available_devices+=("$serial")
     done <<<"$devices"
+    device_count=${#available_devices[@]}
     if [[ -n "${ANDROID_SERIAL:-}" ]]; then
         printf "%s" "$devices" | grep -qx -- "$ANDROID_SERIAL" \
             || die "ANDROID_SERIAL=$ANDROID_SERIAL is not connected."
-        log "Using device: $ANDROID_SERIAL"
+        selected_devices=("$ANDROID_SERIAL")
+    else
+        selected_devices=("${available_devices[0]}")
     fi
     if ((device_count > 1)) && [[ -z "${ANDROID_SERIAL:-}" ]]; then
         if [[ ! -t 0 || ! -t 1 ]]; then
@@ -281,21 +288,41 @@ install_apk() {
             printf '  %d) %s\n' "$index" "$serial"
             index=$((index + 1))
         done <<<"$devices"
-        if ! read -r -p "Choose a device [1]: " answer; then
-            die "No device selected; expected a number between 1 and $device_count."
+        printf '  all) All connected devices\n'
+        if ! read -r -p "Choose devices (e.g. 1,2 or all) [1]: " answer; then
+            die "No device selected; expected device numbers or all."
         fi
         answer="$(printf '%s' "$answer" | tr -d '[:space:]')"
         [[ -z "$answer" ]] && answer=1
-        if ! [[ "$answer" =~ ^[0-9]+$ ]] || [[ $answer -lt 1 ]] || [[ $answer -gt $device_count ]]; then
-            die "Invalid choice: $answer (expected 1 to $device_count)."
+        if [[ "${answer,,}" == all ]]; then
+            selected_devices=("${available_devices[@]}")
+        else
+            [[ "$answer" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] \
+                || die "Invalid choice: $answer (expected device numbers separated by commas, or all)."
+            IFS=, read -r -a choices <<<"$answer"
+            selected_devices=()
+            for choice in "${choices[@]}"; do
+                # Compare against valid indices before using input in arithmetic.
+                for ((index = 1; index <= device_count; index++)); do
+                    [[ "$choice" == "$index" ]] && break
+                done
+                ((index <= device_count)) || die "Invalid device number: $choice (expected 1 to $device_count)."
+                if [[ -z "${selected_indices[index]:-}" ]]; then
+                    selected_devices+=("${available_devices[index - 1]}")
+                    selected_indices[index]=1
+                fi
+            done
         fi
-        chosen="$(awk -v n="$answer" 'NF>0 {c++; if (c == n) {print; exit}}' <<<"$devices")"
-        [[ -n "$chosen" ]] || die "Could not resolve device number $answer."
-        export ANDROID_SERIAL="$chosen"
-        adb_cmd=("$adb" -s "$ANDROID_SERIAL")
-        log "Using device: $ANDROID_SERIAL"
     fi
 
+    for serial in "${selected_devices[@]}"; do
+        log "Using device: $serial"
+        install_apk_on_device "$adb" "$serial"
+    done
+}
+
+install_apk_on_device() {
+    local -a adb_cmd=("$1" -s "$2")
     local apk_dir="$project_dir/app/build/outputs/apk/debug"
     local previous_nullglob
     previous_nullglob="$(shopt -p nullglob || true)"
@@ -483,7 +510,7 @@ if ! "$skip_sdk_setup"; then
     # sdkmanager can return success when licenses were declined. Do not start
     # Gradle until the requested packages really exist.
     for package in "${packages[@]}"; do
-        [[ -f "$sdk_dir/${package//;/\/}/source.properties" ]] || die "Package $package is still missing. Accept its license (or use --accept-licenses) and rerun."
+        [[ -f "$sdk_dir/${package//;/\/}/source.properties" ]] || die "Package $package is still missing. Rerun with --setup-sdk and accept its license (or add --accept-licenses)."
     done
     cleanup
     temp_dir=""
@@ -494,6 +521,30 @@ if [[ ! -f submodule/miuix/settings.gradle.kts ]]; then
     log "Initializing the miuix submodule"
     git submodule update --init --recursive -- submodule/miuix
 fi
+
+# miuix is included as a composite build and must resolve the same AGP/Kotlin as
+# the main project; a mismatch breaks the Gradle build. miuix's libs.versions.toml
+# is upstream-locked (kept identical to upstream), so it is the source of truth
+# and the main project's versions must match it. Fail fast on any drift so the
+# mismatch is caught before Gradle logs a confusing plugin-resolution error.
+check_toolkit_versions() {
+    local main_toml="$project_dir/gradle/libs.versions.toml"
+    local miuix_toml="$project_dir/submodule/miuix/gradle/libs.versions.toml"
+    [[ -f "$main_toml" && -f "$miuix_toml" ]] || return 0
+    local key main_val miuix_val
+    local toolkit_versions=()
+    for key in agp kotlin; do
+        main_val="$(sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" "$main_toml" | head -n1)"
+        miuix_val="$(sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" "$miuix_toml" | head -n1)"
+        [[ -n "$main_val" && -n "$miuix_val" ]] || die "Could not read '$key' from a version catalog (main='$main_val' miuix='$miuix_val')."
+        if [[ "$main_val" != "$miuix_val" ]]; then
+            die "Toolkit version mismatch for '$key': main=$main_val vs miuix=$miuix_val. Keep gradle/libs.versions.toml in sync with submodule/miuix/gradle/libs.versions.toml (miuix is the source of truth)."
+        fi
+        toolkit_versions+=("$key=$main_val")
+    done
+    log "Toolkit versions match miuix: ${toolkit_versions[*]}"
+}
+check_toolkit_versions
 
 apk_tasks=()
 if "$user_gradle_args"; then

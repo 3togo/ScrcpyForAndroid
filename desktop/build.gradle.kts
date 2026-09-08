@@ -7,15 +7,15 @@ dependencies {
     implementation("org.jmdns:jmdns:3.6.3")
 }
 
-group = "io.github.3togo"
+group = "io.github.togo3"
 version = "0.5.5"
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
-application { mainClass.set("io.github.3togo.scrcaster.desktop.DesktopApp") }
+application { mainClass.set("io.github.togo3.scrcaster.desktop.DesktopApp") }
 
 val backendTest = tasks.register<JavaExec>("backendTest") {
     dependsOn(tasks.testClasses)
     classpath = sourceSets.test.get().runtimeClasspath
-    mainClass.set("io.github.3togo.scrcaster.desktop.BackendTest")
+    mainClass.set("io.github.togo3.scrcaster.desktop.BackendTest")
     jvmArgs("-ea")
 }
 tasks.check { dependsOn(backendTest) }
@@ -25,7 +25,7 @@ tasks.test { enabled = false; dependsOn(backendTest) }
 tasks.register<JavaExec>("guiSmoke") {
     dependsOn(tasks.testClasses)
     classpath = sourceSets.test.get().runtimeClasspath
-    mainClass.set("io.github.3togo.scrcaster.desktop.GuiSmokeTest")
+    mainClass.set("io.github.togo3.scrcaster.desktop.GuiSmokeTest")
     jvmArgs("-ea", "-Djava.util.prefs.userRoot=${layout.buildDirectory.get()}/test-preferences")
     environment("ADB", "/usr/bin/true")
     environment("SCRCPY", "/usr/bin/true")

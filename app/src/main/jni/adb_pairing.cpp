@@ -289,7 +289,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         {"nativeDestroy", "(J)V", reinterpret_cast<void*>(PairingContext_Destroy)},
     };
 
-    jclass clazz = env->FindClass("io/github/3togo/scrcaster/nativecore/PairingContext");
+    jclass clazz = env->FindClass("io/github/togo3/scrcaster/nativecore/PairingContext");
     if (clazz == nullptr) {
         return -1;
     }

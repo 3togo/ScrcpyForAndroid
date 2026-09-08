@@ -20,7 +20,7 @@ val buildUniversalApk = configuredAbiList.size > 1
 val singleAbi = configuredAbiList.singleOrNull()
 
 android {
-    namespace = "io.github.3togo.scrcaster"
+    namespace = "io.github.togo3.scrcaster"
     compileSdk = 37
 
     signingConfigs {
@@ -56,7 +56,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.3togo.scrcaster"
+        applicationId = "io.github.togo3.scrcaster"
         minSdk = 26
         targetSdk = 37
         versionCode = 41
@@ -129,6 +129,7 @@ android {
 
     buildToolsVersion = "37.0.0"
     ndkVersion = "29.0.14206865"
+
 }
 
 androidComponents {
@@ -189,7 +190,7 @@ val scrcpyServerAssetFile = "$scrcpyServerAssetDir/scrcpy-server-v4.1"
 val scrcpyServerDownloadUrl = "https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-server-v4.1"
 val scrcpyServerSha256 = "deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae"
 
-val downloadScrcpyServer by tasks.registering {
+val downloadScrcpyServer = tasks.register("downloadScrcpyServer") {
     description = "Download scrcpy-server binary from GitHub releases if absent or SHA256 mismatch"
     group = "build setup"
 

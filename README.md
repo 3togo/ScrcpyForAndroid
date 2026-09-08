@@ -93,18 +93,19 @@ bash gradlew -p desktop check installDist
 
 ## Building Android APKs on Linux
 
-Run `./build.sh` to prepare the Android SDK and build debug APKs. The script
-downloads verified Android command-line tools if `sdkmanager` is missing,
-installs the platform, build-tools, NDK and CMake versions required by the
-project, and initializes the miuix submodule. Install Java first (JDK 21 is
-recommended); a fresh Linux x86_64 setup also needs `curl`, `unzip`, `sha256sum`
-and `git`.
+Run `./build.sh` to build debug APKs using the existing Android SDK. SDK setup
+is skipped by default. Use `--setup-sdk` to download verified Android command-line
+tools if `sdkmanager` is missing and install the platform, build-tools, NDK and
+CMake versions required by the project. The script also initializes the miuix
+submodule if needed. Install Java first (JDK 21 is recommended); a fresh Linux
+x86_64 setup also needs `curl`, `unzip`, `sha256sum` and `git`.
 
 ```sh
-./build.sh                                      # Review SDK license prompts
-./build.sh --accept-licenses                    # Accept licenses automatically
-./build.sh --accept-licenses clean assembleDebug -PabiList=arm64-v8a
-./build.sh --skip-sdk-setup assembleDebug --offline
+./build.sh                                      # Build with the existing SDK
+./build.sh --setup-sdk                          # Prepare SDK; review licenses
+./build.sh --setup-sdk --accept-licenses         # Prepare SDK; accept licenses
+./build.sh clean assembleDebug -PabiList=arm64-v8a
+./build.sh assembleDebug --offline
 ./build.sh --desktop                            # Desktop check + installDist
 ```
 
@@ -117,6 +118,11 @@ The SDK path comes from `local.properties` (`sdk.dir`), then `ANDROID_HOME` or
 installed into the same SDK that Gradle uses. Set `SDKMANAGER` to use a specific
 command-line tools executable. Subsequent runs reuse the installed packages.
 Debug APKs are written to `app/build/outputs/apk/debug/`.
+
+With `./build.sh --install apk`, the device picker accepts one device number,
+comma-separated numbers such as `1,2`, or `all`. Each selected device receives
+the APK matching its ABI, with the universal APK as a fallback. For a
+non-interactive install, set `ANDROID_SERIAL` to select one device.
 
 ## 截图
 

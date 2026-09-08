@@ -1,0 +1,274 @@
+diff --git a/build-plugins/src/main/kotlin/module.publication.gradle.kts b/build-plugins/src/main/kotlin/module.publication.gradle.kts
+index 894c1d52..40e1a879 100644
+--- a/build-plugins/src/main/kotlin/module.publication.gradle.kts
++++ b/build-plugins/src/main/kotlin/module.publication.gradle.kts
+@@ -34,7 +34,7 @@ version = "${BuildConfig.LIBRARY_VERSION}$versionSuffix"
+ 
+ val publicationExt = extensions.create<MiuixPublicationExtension>("miuixPublication")
+ 
+-val javadocJar by tasks.registering(Jar::class) {
++val javadocJar = tasks.register<Jar>("javadocJar") {
+     description = "javadocJar"
+     archiveClassifier.set("javadoc")
+ }
+diff --git a/docs/demo/build.gradle.kts b/docs/demo/build.gradle.kts
+index 8d77aa6f..22e8602d 100644
+--- a/docs/demo/build.gradle.kts
++++ b/docs/demo/build.gradle.kts
+@@ -34,5 +34,5 @@ kotlin {
+ }
+ 
+ rootProject.plugins.withType<YarnPlugin> {
+-    rootProject.the<YarnRootExtension>().lockFileDirectory = rootProject.file("docs/demo").resolve("kotlin-js-store")
++    rootProject.the<YarnRootExtension>().lockFileDirectoryProperty.set(rootProject.layout.projectDirectory.dir("docs/demo/kotlin-js-store"))
+ }
+diff --git a/example/desktop/build.gradle.kts b/example/desktop/build.gradle.kts
+index 5ac5296b..61a0db23 100644
+--- a/example/desktop/build.gradle.kts
++++ b/example/desktop/build.gradle.kts
+@@ -16,7 +16,7 @@ kotlin {
+     jvm("desktop")
+ 
+     sourceSets {
+-        val desktopMain by getting
++        val desktopMain = getByName("desktopMain")
+         desktopMain.dependencies {
+             implementation(projects.example.shared)
+             implementation(compose.desktop.currentOs)
+diff --git a/example/shared/build.gradle.kts b/example/shared/build.gradle.kts
+index a8d1e080..bcb6c8a8 100644
+--- a/example/shared/build.gradle.kts
++++ b/example/shared/build.gradle.kts
+@@ -82,13 +82,14 @@ compose.resources {
+     publicResClass = true
+ }
+ 
+-val generateVersionInfo by tasks.registering(GenerateVersionInfoTask::class) {
+-    description = "GenerateVersionInfoTask"
+-    versionName.set(BuildConfig.APPLICATION_VERSION_NAME)
+-    versionCode.set(getGitVersionCode())
+-    outputFile.set(generatedSrcDir.map { it.file("kotlin/misc/VersionInfo.kt") })
+-    xcconfigFile.set(layout.projectDirectory.file("../ios/iosApp/Generated.xcconfig"))
+-}
++val generateVersionInfo =
++    tasks.register<GenerateVersionInfoTask>("generateVersionInfo") {
++        description = "GenerateVersionInfoTask"
++        versionName.set(BuildConfig.APPLICATION_VERSION_NAME)
++        versionCode.set(getGitVersionCode())
++        outputFile.set(generatedSrcDir.map { it.file("kotlin/misc/VersionInfo.kt") })
++        xcconfigFile.set(layout.projectDirectory.file("../ios/iosApp/Generated.xcconfig"))
++    }
+ 
+ aboutLibraries {
+     export {
+diff --git a/example/web/build.gradle.kts b/example/web/build.gradle.kts
+index d20ade80..c073dc4e 100644
+--- a/example/web/build.gradle.kts
++++ b/example/web/build.gradle.kts
+@@ -40,9 +40,10 @@ kotlin {
+             }
+         }
+ 
+-        val webMain by creating {
+-            dependsOn(commonMain.get())
+-        }
++        val webMain =
++            create("webMain") {
++                dependsOn(commonMain.get())
++            }
+ 
+         wasmJsMain {
+             dependsOn(webMain)
+diff --git a/gradle.properties b/gradle.properties
+index 58fffef2..637f26fb 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -9,7 +9,6 @@ org.gradle.configuration-cache=true
+ android.useAndroidX=true
+ android.nonTransitiveRClass=true
+ android.r8.gradual.support=true
+-android.r8.maxWorkers=4
+ # Dokka
+ org.jetbrains.dokka.experimental.gradle.pluginMode=V2Enabled
+ org.jetbrains.dokka.experimental.gradle.pluginMode.noWarn=true
+@@ -24,7 +23,6 @@ kotlin.native.ignoreDisabledTargets=true
+ # Incremental compilation
+ kotlin.incremental=true
+ kotlin.incremental.multiplatform=true
+-kotlin.incremental.jvm.fir=true
+ kotlin.incremental.js=true
+ kotlin.incremental.js.klib=true
+ kotlin.incremental.native=true
+diff --git a/miuix-nav/build.gradle.kts b/miuix-nav/build.gradle.kts
+index 49857ce6..7f8c7222 100644
+--- a/miuix-nav/build.gradle.kts
++++ b/miuix-nav/build.gradle.kts
+@@ -31,6 +31,7 @@ kotlin {
+         }
+         minSdk = BuildConfig.MIN_SDK
+         namespace = "${BuildConfig.LIBRARY_ID}.nav"
++        withHostTest {}
+     }
+ 
+     jvm("desktop")
+@@ -65,7 +66,7 @@ kotlin {
+         commonTest.dependencies {
+             implementation(kotlin("test"))
+         }
+-        val desktopTest by getting {
++        getByName("desktopTest") {
+             dependencies {
+                 implementation(compose.desktop.currentOs)
+                 implementation(libs.jetbrains.compose.ui.test)
+diff --git a/miuix-squircle/build.gradle.kts b/miuix-squircle/build.gradle.kts
+index d7da6175..2e98f3c9 100644
+--- a/miuix-squircle/build.gradle.kts
++++ b/miuix-squircle/build.gradle.kts
+@@ -147,15 +147,16 @@ abstract class BakeSquircleSdfTask : DefaultTask() {
+     }
+ }
+ 
+-val bakeSquircleSdf by tasks.registering(BakeSquircleSdfTask::class) {
+-    description = "bakeSquircleSdf"
+-    control.set(0.643f)
+-    size.set(512)
+-    halfRange.set(0.125f)
+-    bezierSamples.set(64)
+-    packageName.set("top.yukonga.miuix.kmp.squircle.internal")
+-    outputDir.set(layout.buildDirectory.dir("generated/baked-sdf"))
+-}
++val bakeSquircleSdf =
++    tasks.register<BakeSquircleSdfTask>("bakeSquircleSdf") {
++        description = "bakeSquircleSdf"
++        control.set(0.643f)
++        size.set(512)
++        halfRange.set(0.125f)
++        bezierSamples.set(64)
++        packageName.set("top.yukonga.miuix.kmp.squircle.internal")
++        outputDir.set(layout.buildDirectory.dir("generated/baked-sdf"))
++    }
+ 
+ kotlin {
+     withSourcesJar(true)
+diff --git a/miuix-ui/build.gradle.kts b/miuix-ui/build.gradle.kts
+index 7565752a..794b48f4 100644
+--- a/miuix-ui/build.gradle.kts
++++ b/miuix-ui/build.gradle.kts
+@@ -32,6 +32,7 @@ kotlin {
+         }
+         minSdk = BuildConfig.MIN_SDK
+         namespace = "${BuildConfig.LIBRARY_ID}.ui"
++        withHostTest {}
+     }
+ 
+     jvm("desktop")
+@@ -75,57 +76,58 @@ baselineProfile {
+     }
+ }
+ 
+-val convertBaselineProfile by tasks.registering(ConvertBaselineProfileTask::class) {
+-    description = "convertBaselineProfile"
+-    inputFile.set(
+-        layout.projectDirectory.file("src/androidMain/generated/baselineProfiles/baseline-prof.txt"),
+-    )
+-    outputFile.set(
+-        layout.projectDirectory.file("src/androidMain/baselineProfiles/baseline-prof.txt"),
+-    )
+-    targetPackage.set("top/yukonga/miuix/kmp/")
+-    excludePackages.set(
+-        listOf(
+-            "top/yukonga/miuix/kmp/icon/extended/",
+-            "top/yukonga/miuix/kmp/shared/",
+-        ),
+-    )
+-    additionalOutputs.put(
+-        "top/yukonga/miuix/kmp/preference/",
+-        rootProject.layout.projectDirectory
+-            .file(
+-                "miuix-preference/src/androidMain/baselineProfiles/baseline-prof.txt",
+-            ).asFile.absolutePath,
+-    )
+-    additionalOutputs.put(
+-        "top/yukonga/miuix/kmp/blur/",
+-        rootProject.layout.projectDirectory
+-            .file(
+-                "miuix-blur/src/androidMain/baselineProfiles/baseline-prof.txt",
+-            ).asFile.absolutePath,
+-    )
+-    additionalOutputs.put(
+-        "top/yukonga/miuix/kmp/nav/",
+-        rootProject.layout.projectDirectory
+-            .file(
+-                "miuix-nav/src/androidMain/baselineProfiles/baseline-prof.txt",
+-            ).asFile.absolutePath,
+-    )
+-    additionalOutputs.put(
+-        "top/yukonga/miuix/kmp/shader/",
+-        rootProject.layout.projectDirectory
+-            .file(
+-                "miuix-shader/src/androidMain/baselineProfiles/baseline-prof.txt",
+-            ).asFile.absolutePath,
+-    )
+-    additionalOutputs.put(
+-        "top/yukonga/miuix/kmp/squircle/",
+-        rootProject.layout.projectDirectory
+-            .file(
+-                "miuix-squircle/src/androidMain/baselineProfiles/baseline-prof.txt",
+-            ).asFile.absolutePath,
+-    )
+-}
++val convertBaselineProfile =
++    tasks.register<ConvertBaselineProfileTask>("convertBaselineProfile") {
++        description = "convertBaselineProfile"
++        inputFile.set(
++            layout.projectDirectory.file("src/androidMain/generated/baselineProfiles/baseline-prof.txt"),
++        )
++        outputFile.set(
++            layout.projectDirectory.file("src/androidMain/baselineProfiles/baseline-prof.txt"),
++        )
++        targetPackage.set("top/yukonga/miuix/kmp/")
++        excludePackages.set(
++            listOf(
++                "top/yukonga/miuix/kmp/icon/extended/",
++                "top/yukonga/miuix/kmp/shared/",
++            ),
++        )
++        additionalOutputs.put(
++            "top/yukonga/miuix/kmp/preference/",
++            rootProject.layout.projectDirectory
++                .file(
++                    "miuix-preference/src/androidMain/baselineProfiles/baseline-prof.txt",
++                ).asFile.absolutePath,
++        )
++        additionalOutputs.put(
++            "top/yukonga/miuix/kmp/blur/",
++            rootProject.layout.projectDirectory
++                .file(
++                    "miuix-blur/src/androidMain/baselineProfiles/baseline-prof.txt",
++                ).asFile.absolutePath,
++        )
++        additionalOutputs.put(
++            "top/yukonga/miuix/kmp/nav/",
++            rootProject.layout.projectDirectory
++                .file(
++                    "miuix-nav/src/androidMain/baselineProfiles/baseline-prof.txt",
++                ).asFile.absolutePath,
++        )
++        additionalOutputs.put(
++            "top/yukonga/miuix/kmp/shader/",
++            rootProject.layout.projectDirectory
++                .file(
++                    "miuix-shader/src/androidMain/baselineProfiles/baseline-prof.txt",
++                ).asFile.absolutePath,
++        )
++        additionalOutputs.put(
++            "top/yukonga/miuix/kmp/squircle/",
++            rootProject.layout.projectDirectory
++                .file(
++                    "miuix-squircle/src/androidMain/baselineProfiles/baseline-prof.txt",
++                ).asFile.absolutePath,
++        )
++    }
+ 
+ tasks.matching { it.name == "generateBaselineProfile" }.configureEach {
+     finalizedBy(convertBaselineProfile)
