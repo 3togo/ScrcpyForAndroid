@@ -545,6 +545,7 @@ check_toolkit_versions() {
     log "Toolkit versions match miuix: ${toolkit_versions[*]}"
 }
 check_toolkit_versions
+bash "$project_dir/scripts/prepare-miuix.sh"
 
 apk_tasks=()
 if "$user_gradle_args"; then

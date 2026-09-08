@@ -2,6 +2,9 @@
 
 # ScrCaster
 
+Development uses `main` plus short-lived feature branches. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for building, upstream syncing, and releases.
+
 <a href="https://github.com/Genymobile/scrcpy/blob/master/app/data/icon.svg" title="Modified from the original version">
   <img src="app/src/main/assets/icon/icon.svg" width="128" height="128" alt="scrcpy" align="right" />
 </a>

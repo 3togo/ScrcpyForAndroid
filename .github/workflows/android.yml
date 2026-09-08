@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "*"
+      - "scrcaster-v*"
 permissions:
   contents: write
 
@@ -57,7 +57,7 @@ jobs:
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RELEASE_STORE_FILE"
 
       - name: Build signed release APKs
-        run: ./gradlew clean assembleRelease
+        run: bash build.sh clean assembleRelease
 
       - name: Collect CI APKs
         run: |
@@ -136,7 +136,7 @@ jobs:
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RELEASE_STORE_FILE"
 
       - name: Build signed release APKs
-        run: ./gradlew clean assembleRelease
+        run: bash build.sh clean assembleRelease
 
       - name: Collect release assets
         run: |

@@ -1,6 +1,9 @@
 name: PR Build Check
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -42,7 +45,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APKs
-        run: ./gradlew clean assembleDebug
+        run: bash build.sh clean assembleDebug testDebugUnitTest
 
       - name: Collect APKs
         run: |

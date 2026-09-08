@@ -2,9 +2,11 @@ name: Linux desktop
 
 on:
   push:
-    paths: ['desktop/**', '.github/workflows/linux.yml', 'gradle/wrapper/**', 'gradlew']
+    branches: [main]
+    paths: ['desktop/**', 'core/**', 'build.sh', '.github/workflows/linux.yml', 'gradle/**', 'gradlew']
   pull_request:
-    paths: ['desktop/**', '.github/workflows/linux.yml', 'gradle/wrapper/**', 'gradlew']
+    branches: [main]
+    paths: ['desktop/**', 'core/**', 'build.sh', '.github/workflows/linux.yml', 'gradle/**', 'gradlew']
   workflow_dispatch:
 
 permissions:
