@@ -22,6 +22,10 @@ prepares Miuix, and runs Android and Linux checks. Main is never pushed.
 By default, publishing is a separate choice after checks pass. Use a merge
 commit for the resulting PR, not squash or rebase. No automatic stashing,
 resets, force-pushes, branch deletion, SDK setup, or PR merging are performed.
+Failed fetches are retried. If upstream HTTPS still fails, the script tries
+the same GitHub repository over SSH (requires your GitHub SSH key). Remote
+URLs are unchanged. If direct access fails, ghproxy.net is the last fallback
+for public upstream code. HTTPS certificate verification stays enabled.
 EOF
 }
 
@@ -51,6 +55,46 @@ github_slug() {
     esac
     [[ "$url" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
     printf '%s' "$url"
+}
+
+fetch_remote() {
+    local remote=$1 attempt url slug ssh_command
+    for attempt in 1 2; do
+        say "Fetching $remote (attempt $attempt/2)"
+        if git -c http.sslVerify=true -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            fetch --no-tags "$remote"; then
+            return 0
+        fi
+        if (( attempt == 1 )); then
+            say 'Fetch failed; retrying in 2 seconds'
+            sleep 2
+        fi
+    done
+    url=$(git config --get "remote.$remote.url")
+    if [[ "$remote" == upstream ]]; then
+        slug=$(github_slug "$url") || return 1
+        # A URL fetch needs an explicit destination: never merge a stale upstream/main.
+        if [[ "$url" == https://github.com/* ]]; then
+            say 'Upstream HTTPS failed twice. Trying the same repository over SSH using your GitHub SSH key (remote URL unchanged)'
+            # BatchMode avoids a hidden password prompt during the automatic fallback.
+            ssh_command=${GIT_SSH_COMMAND:-$(git config --get core.sshCommand || printf ssh)}
+            if GIT_SSH_COMMAND="$ssh_command -o BatchMode=yes -o ConnectTimeout=15 -o ConnectionAttempts=1" \
+                git fetch --no-tags "git@github.com:$slug.git" \
+                '+refs/heads/main:refs/remotes/upstream/main'; then
+                return 0
+            fi
+        fi
+        say 'Direct upstream access failed. Trying ghproxy.net (third-party proxy for public upstream code; remote URL unchanged)'
+        if GIT_TERMINAL_PROMPT=0 git -c http.sslVerify=true \
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            -c http.extraHeader= -c credential.helper= \
+            fetch --no-tags "https://ghproxy.net/https://github.com/$slug.git" \
+            '+refs/heads/main:refs/remotes/upstream/main'; then
+            return 0
+        fi
+        printf '\nDirect access and ghproxy.net failed. Check your network/VPN/proxy and GitHub SSH access, then rerun ./sync-upstream.sh.\n' >&2
+    fi
+    return 1
 }
 
 assert_no_operation() {
@@ -210,8 +254,8 @@ main() {
             git remote set-url --push upstream DISABLED
             git config remote.upstream.tagOpt --no-tags
         fi
-        git fetch --no-tags origin || fail "Could not fetch origin. No merge was started."
-        git fetch --no-tags upstream || fail "Could not fetch upstream. No merge was started."
+        fetch_remote origin || fail "Could not fetch origin. No merge was started."
+        fetch_remote upstream || fail "Could not fetch upstream. No merge was started."
         if ! git merge-base --is-ancestor main origin/main && ! git merge-base --is-ancestor origin/main main; then
             fail "Local main and origin/main have diverged. Reconcile them first; this script will not reset either branch."
         fi

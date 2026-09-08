@@ -7,6 +7,7 @@ import errno
 import os
 from pathlib import Path
 import pty
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -71,6 +72,8 @@ esac
         self.git("remote", "add", "upstream", "https://github.com/Miuzarte/ScrcpyForAndroid.git")
         self.git("config", f"url.{self.origin}.insteadOf", "https://github.com/example/ScrCaster.git")
         self.git("config", f"url.{self.upstream}.insteadOf", "https://github.com/Miuzarte/ScrcpyForAndroid.git")
+        self.git("config", "--add", f"url.{self.upstream}.insteadOf", "git@github.com:Miuzarte/ScrcpyForAndroid.git")
+        self.git("config", "--add", f"url.{self.upstream}.insteadOf", "https://ghproxy.net/https://github.com/Miuzarte/ScrcpyForAndroid.git")
         self.git("fetch", "-q", "origin")
 
     def executable(self, name, text):
@@ -116,6 +119,102 @@ esac
     def test_help_and_noninteractive_confirmation(self):
         self.assertIn("--continue", self.run_sync("--help"))
         self.assertIn("No interactive terminal", self.run_sync(ok=False))
+
+    def fail_fetches(self, mode):
+        real_git = shlex.quote(shutil.which("git"))
+        self.env["SYNC_TEST_FETCH_MODE"] = mode
+        self.env["SYNC_TEST_FETCH_COUNT"] = str(self.root / "fetch-count")
+        self.executable("git", f'''#!/bin/bash
+case " $* " in
+    *' fetch '*)
+        echo "fetch $*" >> "$SYNC_TEST_CALLS"
+        case " $* " in
+            *' origin '*)
+                if [[ "$SYNC_TEST_FETCH_MODE" == origin ]]; then exit 128; fi ;;
+            *' upstream '*)
+                count=0
+                if [[ -f "$SYNC_TEST_FETCH_COUNT" ]]; then read -r count < "$SYNC_TEST_FETCH_COUNT"; fi
+                count=$((count + 1))
+                echo "$count" > "$SYNC_TEST_FETCH_COUNT"
+                if [[ "$SYNC_TEST_FETCH_MODE" != once || "$count" == 1 ]]; then
+                    echo 'fatal: GnuTLS handshake failed' >&2
+                    exit 128
+                fi ;;
+            *' git@github.com:Miuzarte/ScrcpyForAndroid.git '*)
+                if [[ "$SYNC_TEST_FETCH_MODE" == all || "$SYNC_TEST_FETCH_MODE" == proxy ]]; then exit 128; fi ;;
+            *' https://ghproxy.net/https://github.com/Miuzarte/ScrcpyForAndroid.git '*)
+                if [[ "$SYNC_TEST_FETCH_MODE" == all ]]; then exit 128; fi ;;
+        esac ;;
+esac
+exec {real_git} "$@"
+''')
+        self.executable("sleep", "#!/bin/bash\nexit 0\n")
+
+    def test_transient_fetch_failure_retries_without_ssh(self):
+        self.fail_fetches("once")
+        output = self.run_sync("--yes")
+        self.assertIn("Fetching upstream (attempt 2/2)", output)
+        self.assertIn("Already up to date", output)
+        self.assertNotIn("Trying the same repository over SSH", output)
+        self.assertNotIn("Trying ghproxy.net", output)
+        self.assertIn("http.sslVerify=true", self.calls.read_text())
+
+    def test_https_failure_ssh_fallback_updates_tracking_ref(self):
+        incoming = self.incoming()
+        self.fail_fetches("https")
+        output = self.run_sync("--yes")
+        self.assertIn("Trying the same repository over SSH", output)
+        self.assertNotIn("Trying ghproxy.net", output)
+        self.assertEqual(self.git("rev-parse", "upstream/main"), incoming)
+        self.assertEqual(self.git("merge-base", "HEAD", incoming), incoming)
+        self.assertEqual(self.git("config", "remote.upstream.url"),
+                         "https://github.com/Miuzarte/ScrcpyForAndroid.git")
+        self.assertNotIn("http.sslVerify=false", self.calls.read_text())
+        self.assertEqual(self.git("config", "--get", "http.sslVerify", check=False), "")
+
+    def test_all_fetches_fail_without_merging_stale_tracking_ref(self):
+        self.git("fetch", "upstream")
+        original = self.git("rev-parse", "HEAD")
+        self.incoming()
+        self.fail_fetches("all")
+        output = self.run_sync("--yes", ok=False)
+        self.assertIn("Direct access and ghproxy.net failed", output)
+        self.assertIn("No merge was started", output)
+        self.assertEqual(self.git("branch", "--show-current"), "main")
+        self.assertEqual(self.git("rev-parse", "HEAD"), original)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertNotIn("android", self.calls.read_text())
+
+    def test_proxy_fallback_updates_tracking_ref_without_changing_remote(self):
+        incoming = self.incoming()
+        self.fail_fetches("proxy")
+        output = self.run_sync("--yes")
+        self.assertIn("Trying ghproxy.net (third-party proxy", output)
+        self.assertEqual(self.git("rev-parse", "upstream/main"), incoming)
+        self.assertEqual(self.git("merge-base", "HEAD", incoming), incoming)
+        self.assertEqual(self.git("config", "remote.upstream.url"),
+                         "https://github.com/Miuzarte/ScrcpyForAndroid.git")
+        proxy_call = next(line for line in self.calls.read_text().splitlines()
+                          if "ghproxy.net" in line)
+        self.assertIn("http.sslVerify=true", proxy_call)
+        self.assertIn("http.extraHeader=", proxy_call)
+        self.assertIn("credential.helper=", proxy_call)
+
+    def test_configured_ssh_failure_does_not_attempt_https_fallback(self):
+        self.git("remote", "set-url", "upstream", "git@github.com:Miuzarte/ScrcpyForAndroid.git")
+        self.fail_fetches("all")
+        output = self.run_sync("--yes", ok=False)
+        self.assertIn("Fetching upstream (attempt 2/2)", output)
+        self.assertNotIn("Trying the same repository over SSH", output)
+        self.assertIn("No merge was started", output)
+
+    def test_fork_failure_never_uses_public_proxy(self):
+        self.fail_fetches("origin")
+        output = self.run_sync("--yes", ok=False)
+        self.assertIn("Could not fetch origin", output)
+        self.assertNotIn("ghproxy.net", self.calls.read_text())
+        self.assertNotIn(" upstream", self.calls.read_text())
+        self.assertEqual(self.git("branch", "--show-current"), "main")
 
     def run_interactive(self, answers):
         master, slave = pty.openpty()

@@ -55,6 +55,14 @@ The interactive helper performs the steps below for you:
 ./sync-upstream.sh
 ```
 
+Network failures are retried once. If upstream HTTPS still fails, the script
+tries the same Miuzarte repository over SSH using your GitHub SSH key. If direct
+access fails, it uses [ghproxy.net](https://ghproxy.net/) as a last fallback for
+public upstream code only, never for fetching or pushing your fork. This is a
+third-party source of Git data, so review the resulting changes before merging.
+It does not change remote URLs or disable TLS verification. If all attempts
+fail, it stops before any merge; fix connectivity and run the same command again.
+
 Start on `main` with saved work. It checks the remotes and worktree, removes only
 the recorded Miuix patch, updates local `main` from `origin` by fast-forward,
 and merges upstream on a uniquely named `codex/sync-upstream-YYYY-MM-DD` branch.
