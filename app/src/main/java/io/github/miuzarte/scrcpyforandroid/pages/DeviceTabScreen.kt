@@ -66,7 +66,7 @@ private val DEVICE_TWO_PANE_CONFIG_MAX_WIDTH = 640.dp
 internal data class DeviceConnectionServices(
     val adbCoordinator: DeviceAdbConnectionCoordinator,
     val connectionStateStore: ConnectionStateStore,
-    val connectionController: ConnectionController,
+    val connectionController: DeviceConnectionController,
     val autoReconnectManager: DeviceAdbAutoReconnectManager,
 )
 
@@ -578,7 +578,10 @@ internal fun DeviceTabPage(
 
 
     @Composable
-    fun ScrcpyConfigSection() {
+    fun ScrcpyConfigSection(
+        showFullscreenAction: Boolean = false,
+        reverseSideActions: Boolean = false,
+    ) {
         ConfigPanel(
             busy = busy,
             activeProfileId = connectedScrcpyProfileId,
@@ -622,8 +625,9 @@ internal fun DeviceTabPage(
             else {
                 { viewModel.onDisconnectCurrent(currentTarget) }
             },
-            showFullscreenAction = false,
+            showFullscreenAction = showFullscreenAction,
             onOpenFullscreen = ::openFullscreenControl,
+            reverseSideActions = reverseSideActions,
         )
     }
 
@@ -691,56 +695,7 @@ internal fun DeviceTabPage(
         )
     }
 
-    @Composable
-    fun ScrcpyConfigSectionForTwoPane() {
-        ConfigPanel(
-            busy = busy,
-            activeProfileId = connectedScrcpyProfileId,
-            activeBundle = connectedScrcpyBundle,
-            hideSimpleConfigItems = asBundle.hideSimpleConfigItems,
-            audioForwardingSupported = connectionState.adbSession.audioForwardingSupported,
-            cameraMirroringSupported = connectionState.adbSession.cameraMirroringSupported,
-            adbConnecting = adbConnecting,
-            isQuickConnected = isQuickConnected || (adbConnected && currentTarget?.connectionType == DeviceConnectionType.USB),
-            advancedEndActionText = connectedScrcpyProfileName,
-            allAppsEndActionText = when {
-                listingsRefreshBusy -> "..."
-                apps.isNotEmpty() -> apps.size.toString()
-                else -> stringResource(R.string.text_none)
-            },
-            onOpenAllApps = {
-                viewModel.showAllApps()
-                if (apps.isEmpty() && !listingsRefreshBusy)
-                    scope.launch(Dispatchers.IO) {
-                        viewModel.refreshApps()
-                    }
-            },
-            recentTasksEndActionText = when {
-                listingsRefreshBusy -> "..."
-                recentTasks.isNotEmpty() -> recentTasks.size.toString()
-                else -> stringResource(R.string.text_none)
-            },
-            onOpenRecentTasks = {
-                viewModel.showRecentTasks()
-                if (recentTasks.isEmpty() && !listingsRefreshBusy)
-                    scope.launch(Dispatchers.IO) {
-                        viewModel.refreshRecentTasks()
-                    }
-            },
-            onOpenAdvanced = { navigator.push(RootScreen.Advanced) },
-            onStart = viewModel::startScrcpy,
-            onStop = viewModel::stopScrcpy,
-            sessionInfo = sessionInfo,
-            // USB 连接时底部不显示"断开" (断开入口在设备列表条目上), 对齐无线行为
-            onDisconnect = if (currentTarget?.connectionType == DeviceConnectionType.USB) null
-            else {
-                { viewModel.onDisconnectCurrent(currentTarget) }
-            },
-            showFullscreenAction = canShowPreviewControls,
-            onOpenFullscreen = ::openFullscreenControl,
-            reverseSideActions = asBundle.deviceTwoPaneConfigOnRight,
-        )
-    }
+
 
     @Composable
     fun VirtualButtonsSection(modifier: Modifier = Modifier) {
@@ -853,15 +808,19 @@ internal fun DeviceTabPage(
                     item { VirtualButtonsSection() }
                     item {
                         if (sessionInfo == null) ProfilesTabRow()
-                        if (useTwoPaneConfigPanel) ScrcpyConfigSectionForTwoPane()
-                        else ScrcpyConfigSection()
+                        ScrcpyConfigSection(
+                            showFullscreenAction = useTwoPaneConfigPanel && canShowPreviewControls,
+                            reverseSideActions = useTwoPaneConfigPanel && asBundle.deviceTwoPaneConfigOnRight,
+                        )
                     }
                 } else {
                     item {
                         SectionSmallTitle(stringResource(R.string.device_section_scrcpy))
                         if (sessionInfo == null) ProfilesTabRow()
-                        if (useTwoPaneConfigPanel) ScrcpyConfigSectionForTwoPane()
-                        else ScrcpyConfigSection()
+                        ScrcpyConfigSection(
+                            showFullscreenAction = useTwoPaneConfigPanel && canShowPreviewControls,
+                            reverseSideActions = useTwoPaneConfigPanel && asBundle.deviceTwoPaneConfigOnRight,
+                        )
                     }
                     if (includeInlinePreviewControls && canShowPreviewControls) {
                         item(key = PREVIEW_CARD_ITEM_KEY) { PreviewSection() }

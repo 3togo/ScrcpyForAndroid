@@ -2,6 +2,7 @@ package io.github.miuzarte.scrcpyforandroid.connection
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
 internal data class ConnectionEndpoint(val host: String, val port: Int) {
@@ -56,10 +56,25 @@ internal data class ConnectionUiState(
     val qrPayload: String = "",
 )
 
-/** No Activity, Views or Compose: both layouts can use the same connection state machine. */
+/**
+ * Common, platform-neutral connection contract shared by the TV and phone layouts.
+ * Holds only what both genuinely implement: streaming state + pending-connect cancellation.
+ * No Activity/Views/Compose here so both can share the same primitive.
+ *
+ * The richer connect/disconnect/pair flows are TV-specific (single endpoint, QR pairing,
+ * mDNS discovery) and live in [PairingConnectionBackend]; the phone layout drives its own
+ * multi-device connect orchestration instead of implementing that shape.
+ */
 internal interface ConnectionBackend {
     fun isStreaming(): Boolean
     fun cancelPendingConnect()
+}
+
+/**
+ * TV-only connection backend: single-endpoint connect/disconnect plus wireless pairing
+ * over QR / 6-digit code and mDNS discovery. The phone layout does not implement this.
+ */
+internal interface PairingConnectionBackend : ConnectionBackend {
     suspend fun connect(endpoint: ConnectionEndpoint, preferences: PlaybackPreferences)
     suspend fun disconnect()
     suspend fun pair(endpoint: ConnectionEndpoint, secret: String): Boolean
@@ -76,14 +91,16 @@ internal enum class ConnectionEvent { PLAYBACK, FINISH }
 
 internal class ConnectionController(
     private val scope: CoroutineScope,
-    private val backend: ConnectionBackend,
+    private val backend: PairingConnectionBackend,
     private val store: ConnectionPreferencesStore,
+    private val keepAliveIntervalMs: Long = 5_000L,
 ) {
     private val mutableState = MutableStateFlow(ConnectionUiState(store.load(), streaming = backend.isStreaming()))
     val state = mutableState.asStateFlow()
     private val eventChannel = Channel<ConnectionEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
     private var operation: Job? = null
+    private val keepAlive = ConnectionKeepAlive(Dispatchers.IO)
 
     fun refresh() { mutableState.update { it.copy(streaming = backend.isStreaming()) } }
     fun setAddress(value: String) { mutableState.update { it.copy(address = value) } }
@@ -155,7 +172,27 @@ internal class ConnectionController(
             eventChannel.trySend(ConnectionEvent.PLAYBACK)
             return
         }
-        state.value.preferences.lastEndpoint?.let(::connect)
+        val endpoint = state.value.preferences.lastEndpoint ?: return
+        connect(endpoint)
+    }
+
+    /**
+     * Starts the shared keep-alive loop after a successful (re)connect so a dropped scrcpy
+     * session is restored automatically. The phone layout drives the same [ConnectionKeepAlive]
+     * primitive from its own multi-device coordinator; here it reuses the stored endpoint +
+     * playback preferences. Stops on [disconnect] / [dispose].
+     */
+    private fun startKeepAlive(endpoint: ConnectionEndpoint) {
+        val playback = state.value.preferences.playback
+        var connected = true
+        keepAlive.start(scope, KeepAlivePolicy(
+            intervalMs = keepAliveIntervalMs,
+            isConnected = { connected },
+            keepAliveCheck = { backend.isStreaming() },
+            reconnect = { backend.connect(endpoint, playback) },
+            onReconnectSuccess = { connected = true; refresh() },
+            onReconnectFailure = { connected = false },
+        ))
     }
 
     private fun connect(endpoint: ConnectionEndpoint) {
@@ -173,6 +210,7 @@ internal class ConnectionController(
             mutableState.update { it.copy(preferences = preferences, streaming = true,
                 status = ConnectionStatus.CONNECTED, dialog = ConnectionDialog.NONE, pairingCode = "", qrPayload = "") }
             eventChannel.send(ConnectionEvent.PLAYBACK)
+            startKeepAlive(endpoint)
         } catch (error: Exception) {
             withContext(NonCancellable) {
                 try { backend.disconnect() } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
@@ -188,17 +226,16 @@ internal class ConnectionController(
     }
 
     private suspend fun pairQr() {
-        val name = "studio-" + UUID.randomUUID().toString().replace("-", "")
-        val secret = UUID.randomUUID().toString().replace("-", "")
-        mutableState.update { it.copy(qrPayload = "WIFI:T:ADB;S:$name;P:$secret;;") }
-        val endpoint = backend.findQrService(name)
+        val pairing = buildAdbQrPairing()
+        mutableState.update { it.copy(qrPayload = pairing.payload) }
+        val endpoint = backend.findQrService(pairing.name)
         coroutineContext.ensureActive()
         if (endpoint == null) {
             mutableState.update { it.copy(status = ConnectionStatus.QR_TIMEOUT) }
             return
         }
         mutableState.update { it.copy(status = ConnectionStatus.PAIRING) }
-        if (!backend.pair(endpoint, secret)) {
+        if (!backend.pair(endpoint, pairing.secret)) {
             mutableState.update { it.copy(status = ConnectionStatus.PAIR_FAILED) }
             return
         }
@@ -219,6 +256,7 @@ internal class ConnectionController(
 
     fun disconnect(finish: Boolean = false) {
         if (state.value.busy) return
+        keepAlive.stop()
         operation = scope.launch { perform {
             backend.disconnect()
             mutableState.update { it.copy(streaming = false, status = ConnectionStatus.DISCONNECTED) }
@@ -239,7 +277,12 @@ internal class ConnectionController(
         if (state.value.dialog in setOf(ConnectionDialog.QR, ConnectionDialog.CODE)) dismissDialog()
     }
 
-    fun dispose() { backend.cancelPendingConnect(); operation?.cancel() }
+        fun dispose() {
+        keepAlive.stop()
+        backend.cancelPendingConnect()
+        operation?.cancel()
+        eventChannel.close()
+    }
 
     private suspend fun perform(block: suspend () -> Unit) {
         mutableState.update { it.copy(busy = true, error = null) }

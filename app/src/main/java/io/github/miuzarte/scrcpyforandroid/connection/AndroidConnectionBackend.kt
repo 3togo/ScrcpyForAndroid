@@ -12,6 +12,7 @@ import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ScrcpyAspectRatio
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
+import io.github.miuzarte.scrcpyforandroid.services.teardownScrcpySession
 import io.github.miuzarte.scrcpyforandroid.services.AppScreenOn
 import io.github.miuzarte.scrcpyforandroid.services.DeviceAdbConnectionCoordinator
 import io.github.miuzarte.scrcpyforandroid.storage.Storage
@@ -51,7 +52,7 @@ internal class AndroidConnectionPreferences(context: Context) : ConnectionPrefer
     }
 }
 
-internal class AndroidConnectionBackend : ConnectionBackend {
+internal class AndroidConnectionBackend : PairingConnectionBackend {
     private val coordinator = DeviceAdbConnectionCoordinator()
     private val scrcpy: Scrcpy get() = requireNotNull(AppRuntime.scrcpy)
     override fun isStreaming() = scrcpy.isStarted()
@@ -72,13 +73,7 @@ internal class AndroidConnectionBackend : ConnectionBackend {
     }
 
     override suspend fun disconnect() {
-        try { scrcpy.stop() } finally {
-            try { coordinator.disconnect() } finally {
-                AppRuntime.currentConnectionTarget = null
-                AppRuntime.currentConnectedDevice = null
-                AppScreenOn.release()
-            }
-        }
+        teardownScrcpySession(coordinator, scrcpy)
     }
 
     override suspend fun pair(endpoint: ConnectionEndpoint, secret: String): Boolean =

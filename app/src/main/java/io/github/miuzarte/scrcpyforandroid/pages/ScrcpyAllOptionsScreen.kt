@@ -410,7 +410,7 @@ internal fun ScrcpyAllOptionsPage(
         onDispose {
             taskScope.launch {
                 onSaveBundleForProfile(selectedProfileIdLatest, soBundleLatest)
-            }
+            }.invokeOnCompletion { taskScope.cancel() }
         }
     }
     val listState = rememberSaveable(

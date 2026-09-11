@@ -6,8 +6,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -165,12 +168,42 @@ class ConnectionControllerTest {
         assertEquals(options, store.value.playback)
     }
 
+    @Test fun disposeClosesEventChannel() = runBlocking {
+        val controller = controller()
+        val collector = launch { controller.events.collect { } }
+        controller.dispose()
+        withTimeout(1000) { collector.join() }
+        assertFalse(collector.isActive)
+    }
+
+    @Test fun keepAliveDoesNotDoubleConnectWhileInitialConnectInFlight() = runBlocking {
+        store.value = ConnectionPreferences(lastEndpoint = phone)
+        backend.connectAction = { delay(250); streaming = true }
+        val controller = ConnectionController(scope, backend, store, keepAliveIntervalMs = 50)
+        controller.reconnect()
+        delay(150)
+        assertEquals(1, backend.connected.size) // no premature keep-alive reconnect during the in-flight connect
+        delay(200)
+        assertEquals(1, backend.connected.size) // once streaming, keep-alive stays quiet
+    }
+
+    @Test fun keepAliveAutoReconnectsAfterStreamingDrop() = runBlocking {
+        store.value = ConnectionPreferences(lastEndpoint = phone)
+        val controller = ConnectionController(scope, backend, store, keepAliveIntervalMs = 50)
+        controller.reconnect()
+        delay(100)
+        assertEquals(1, backend.connected.size) // initial connect established the session
+        backend.streaming = false // simulate a dropped scrcpy session
+        delay(120)
+        assertEquals(2, backend.connected.size) // keep-alive restored the session
+    }
+
     private class MemoryStore : ConnectionPreferencesStore {
         var value = ConnectionPreferences()
         override fun load() = value
         override fun save(preferences: ConnectionPreferences) { value = preferences }
     }
-    private class FakeBackend : ConnectionBackend {
+    private class FakeBackend : PairingConnectionBackend {
         var streaming = false
         var disconnects = 0
         var discovered: ConnectionEndpoint? = null

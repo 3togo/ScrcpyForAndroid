@@ -287,6 +287,7 @@ internal class DeviceTabViewModel(
     }
 
     override fun onCleared() {
+        runCatching { _fullscreenRequests.close() }
         // 显式停止健康检查循环 (viewModelScope 取消亦可终止, 这里同步复位标志)
         stopConnectionHealthCheckLoop()
         runBlocking(Dispatchers.IO) {

@@ -10,7 +10,9 @@ Usage: ./build.sh [--setup-sdk [--accept-licenses]] [Gradle arguments...]
        ./build.sh --desktop [Gradle arguments...]
        ./build.sh --install [apk|deb|both] [Gradle arguments...]
 
-By default, use the existing Android SDK and build debug APKs (assembleDebug).
+By default, use the existing Android SDK and build ARM64 (arm64-v8a),
+ARMv7 (armeabi-v7a), and universal debug APKs (assembleDebug).
+Override architectures with -PabiList=... (comma-separated).
 With --setup-sdk, install missing SDK command-line tools, platform, build-tools,
 NDK and CMake, and display SDK licenses for acceptance before building.
 
@@ -36,6 +38,7 @@ Examples:
   ./build.sh --setup-sdk
   ./build.sh --setup-sdk --accept-licenses
   ./build.sh clean assembleDebug -PabiList=arm64-v8a
+  ./build.sh assembleDebug -PabiList=arm64-v8a,armeabi-v7a,x86,x86_64
   ./build.sh assembleDebug --offline
   ./build.sh --desktop
   ./build.sh --desktop --install
@@ -553,9 +556,30 @@ if "$user_gradle_args"; then
 else
     apk_tasks=(assembleDebug)
 fi
+# Keep both ARM architectures in normal Android builds. Respect either Gradle
+# spelling of an explicit project-property override; desktop arguments stay separate.
+abi_override=false
+for ((arg_index = 0; arg_index < ${#apk_tasks[@]}; arg_index++)); do
+    case "${apk_tasks[arg_index]}" in
+        -PabiList=*|--project-prop=abiList=*) abi_override=true ;;
+        -P|--project-prop)
+            if [[ ${apk_tasks[arg_index + 1]:-} == abiList=* ]]; then
+                abi_override=true
+            fi
+            ;;
+    esac
+done
+if ! "$abi_override"; then
+    apk_tasks+=(-PabiList=arm64-v8a,armeabi-v7a)
+fi
 log "Running Gradle: ${apk_tasks[*]}"
 # The upstream wrapper is not executable in every checkout.
 bash "$project_dir/gradlew" "${apk_tasks[@]}"
+
+if [[ -d "$project_dir/app/build/outputs/apk/debug" ]]; then
+    log "Available debug APKs:"
+    find "$project_dir/app/build/outputs/apk/debug" -maxdepth 1 -type f -name '*.apk' -print | sort
+fi
 
 if "$install_requested"; then
     if "$target_apk"; then

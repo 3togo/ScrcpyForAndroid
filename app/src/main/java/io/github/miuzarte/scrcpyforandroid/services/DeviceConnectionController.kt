@@ -1,5 +1,6 @@
 package io.github.miuzarte.scrcpyforandroid.services
 
+import io.github.miuzarte.scrcpyforandroid.connection.ConnectionBackend
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.models.DeviceConnectionType
 import io.github.miuzarte.scrcpyforandroid.nativecore.UsbAdbSession
@@ -21,28 +22,31 @@ internal data class StopScrcpyResult(
     val clearedTarget: ConnectionTarget?,
 )
 
-internal class ConnectionController(
+internal class DeviceConnectionController(
     private val scrcpy: Scrcpy,
     private val stateStore: ConnectionStateStore,
     private val adbCoordinator: DeviceAdbConnectionCoordinator = DeviceAdbConnectionCoordinator(),
-) {
+) : ConnectionBackend {
+
+    /** Shared [ConnectionBackend] primitive: whether a scrcpy stream is active. */
+    override fun isStreaming(): Boolean = scrcpy.isStarted()
+
+    /** Shared [ConnectionBackend] primitive: abort an in-flight ADB connect attempt. */
+    override fun cancelPendingConnect() = adbCoordinator.cancelPendingConnect()
+
+
     val state: ConnectionState
         get() = stateStore.state.value
 
     suspend fun disconnectAdbConnection(
         clearQuickOnlineForTarget: ConnectionTarget? = state.adbSession.currentTarget,
         cause: DisconnectCause = DisconnectCause.Unknown,
-        statusLine: String = "Disconnected",
+        statusLine: String = ConnectionStatusLines.DISCONNECTED,
     ): ConnectionDisconnectResult {
         stateStore.markDisconnected(cause = cause, statusLine = statusLine)
-        AppRuntime.currentConnectionTarget = null
-        AppRuntime.currentConnectedDevice = null
-        AppRuntime.currentConnectionProfileId.value = "global"
-        runCatching { scrcpy.stop() }
-        runCatching { adbCoordinator.disconnect() }
         // 兜底释放 USB 隧道 (无隧道时为 no-op, 幂等)
         runCatching { UsbAdbSession.disconnect() }
-        AppScreenOn.release()
+        runCatching { teardownScrcpySession(adbCoordinator, scrcpy) }
         return ConnectionDisconnectResult(clearedTarget = clearQuickOnlineForTarget)
     }
 
@@ -179,7 +183,7 @@ internal class ConnectionController(
             it.copy(
                 adbSession = it.adbSession.copy(
                     isConnected = true,
-                    statusLine = "$host:$port",
+                    statusLine = ConnectionStatusLines.endpoint(host, port),
                 ),
                 disconnectCause = null,
                 lastError = null,
@@ -189,7 +193,7 @@ internal class ConnectionController(
 
     fun markScrcpyStarted() {
         stateStore.updateSession {
-            it.copy(statusLine = "scrcpy running")
+            it.copy(statusLine = ConnectionStatusLines.SCRCPY_RUNNING)
         }
     }
 
@@ -209,7 +213,7 @@ internal class ConnectionController(
         AppScreenOn.release()
         val target = state.adbSession.currentTarget
         if (target != null) {
-            updateStatusLine("${target.host}:${target.port}")
+            updateStatusLine(ConnectionStatusLines.endpoint(target))
         }
         return StopScrcpyResult(
             disconnectedAdb = false,

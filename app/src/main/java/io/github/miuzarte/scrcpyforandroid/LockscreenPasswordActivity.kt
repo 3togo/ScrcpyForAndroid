@@ -152,7 +152,7 @@ private fun LockscreenPasswordScreen(
         onDispose {
             taskScope.launch {
                 appSettings.saveBundle(asBundleLatest)
-            }
+            }.invokeOnCompletion { taskScope.cancel() }
         }
     }
 

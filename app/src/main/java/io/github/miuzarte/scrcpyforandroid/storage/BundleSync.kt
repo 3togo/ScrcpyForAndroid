@@ -78,7 +78,6 @@ fun <T> rememberBundleState(
     val state = rememberSaveable(shared) { mutableStateOf(shared) }
     var local by state
     val localLatest by rememberUpdatedState(local)
-    val taskScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     LaunchedEffect(shared) {
         if (local != shared) local = shared
@@ -92,7 +91,6 @@ fun <T> rememberBundleState(
             kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                 if (localLatest != sharedFlow.value) save(localLatest)
             }
-            taskScope.cancel()
         }
     }
 

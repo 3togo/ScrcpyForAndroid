@@ -491,16 +491,16 @@ internal fun ConfigPanel(
                 Storage.scrcpyProfiles.updateBundle(activeProfileIdLatest, soBundle)
         }
     }
-    DisposableEffect(Unit) {
-        onDispose {
-            taskScope.launch {
-                if (activeProfileIdLatest == ScrcpyOptions.GLOBAL_PROFILE_ID)
-                    scrcpyOptions.saveBundle(soBundleLatest)
-                else
-                    Storage.scrcpyProfiles.updateBundle(activeProfileIdLatest, soBundleLatest)
+        DisposableEffect(Unit) {
+            onDispose {
+                taskScope.launch {
+                    if (activeProfileIdLatest == ScrcpyOptions.GLOBAL_PROFILE_ID)
+                        scrcpyOptions.saveBundle(soBundleLatest)
+                    else
+                        Storage.scrcpyProfiles.updateBundle(activeProfileIdLatest, soBundleLatest)
+                }.invokeOnCompletion { taskScope.cancel() }
             }
         }
-    }
 
     val audioBitRateVisibility = rememberSaveable(soBundle) {
         soBundle.audio && (soBundle.audioCodec == "opus" || soBundle.audioCodec == "aac")
@@ -1028,7 +1028,9 @@ fun ScrcpyVideoSurface(
             if (surface != null) {
                 taskScope.launch {
                     NativeCoreFacade.detachVideoSurface(surface)
-                }
+                }.invokeOnCompletion { taskScope.cancel() }
+            } else {
+                taskScope.cancel()
             }
         }
     }

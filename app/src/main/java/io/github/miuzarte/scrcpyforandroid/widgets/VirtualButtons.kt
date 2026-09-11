@@ -509,7 +509,7 @@ class VirtualButtonBar(
                             ),
                         )
                     }
-                }
+                }.invokeOnCompletion { taskScope.cancel() }
             }
         }
 

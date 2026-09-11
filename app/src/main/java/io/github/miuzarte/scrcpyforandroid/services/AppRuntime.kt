@@ -36,6 +36,17 @@ object AppRuntime {
     // 当前设备使用的 profile ID (session 级, 脱离快捷设备独立运作)
     val currentConnectionProfileId = MutableStateFlow("global")
 
+    /**
+     * Clear the session-scoped connection context (target / device / profile id) shared across
+     * both TV and phone backends. Centralizes the scattered triplet reset so callers don't have to
+     * touch each field individually.
+     */
+    fun clearConnectionContext() {
+        currentConnectionTarget = null
+        currentConnectedDevice = null
+        currentConnectionProfileId.value = "global"
+    }
+
     private val snackbarHostStateLock = Any()
     private val snackbarHostStateStack = mutableListOf<SnackbarHostState>()
 

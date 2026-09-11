@@ -130,13 +130,7 @@ private fun RecordPreferencesPage(
             saveRecordBundleForProfile(profileId, soBundle)
         }
     }
-    DisposableEffect(Unit) {
-        onDispose {
-            taskScope.launch {
-                saveRecordBundleForProfile(profileId, soBundleLatest)
-            }
-        }
-    }
+
 
     var draftTemplate by rememberSaveable(
         profileId,
@@ -171,15 +165,16 @@ private fun RecordPreferencesPage(
     val draftTemplateLatest by rememberUpdatedState(draftTemplate)
     DisposableEffect(Unit) {
         onDispose {
-            val trimmed = draftTemplateLatest.text.trim()
-            if (trimmed != soBundleLatest.recordFilename) {
-                taskScope.launch {
+            taskScope.launch {
+                saveRecordBundleForProfile(profileId, soBundleLatest)
+                val trimmed = draftTemplateLatest.text.trim()
+                if (trimmed != soBundleLatest.recordFilename) {
                     saveRecordBundleForProfile(
                         profileId = profileId,
                         bundle = soBundleLatest.copy(recordFilename = trimmed),
                     )
                 }
-            }
+            }.invokeOnCompletion { taskScope.cancel() }
         }
     }
 

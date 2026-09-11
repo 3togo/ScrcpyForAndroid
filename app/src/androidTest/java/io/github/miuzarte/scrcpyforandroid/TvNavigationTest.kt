@@ -126,7 +126,7 @@ class TvNavigationTest {
         compose.onNodeWithTag("reconnect").assertExists()
     }
 
-    private class NavigationBackend : ConnectionBackend {
+    private class NavigationBackend : PairingConnectionBackend {
         override fun isStreaming() = false
         override fun cancelPendingConnect() = Unit
         override suspend fun connect(endpoint: ConnectionEndpoint, preferences: PlaybackPreferences) = Unit

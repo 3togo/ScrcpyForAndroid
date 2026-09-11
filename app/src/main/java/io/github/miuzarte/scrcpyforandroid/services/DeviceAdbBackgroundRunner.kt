@@ -1,5 +1,7 @@
 package io.github.miuzarte.scrcpyforandroid.services
 
+import io.github.miuzarte.scrcpyforandroid.connection.ConnectionKeepAlive
+import io.github.miuzarte.scrcpyforandroid.connection.KeepAlivePolicy
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.models.DeviceConnectionType
 import io.github.miuzarte.scrcpyforandroid.models.DeviceShortcut
@@ -12,6 +14,7 @@ internal class DeviceAdbBackgroundRunner: Closeable {
         Thread(runnable, "device-adb-monitor").apply { isDaemon = true }
     }
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
+    private val keepAlive = ConnectionKeepAlive(dispatcher)
 
     suspend fun runKeepAliveLoop(
         sessionState: () -> DeviceAdbSessionState,
@@ -22,35 +25,21 @@ internal class DeviceAdbBackgroundRunner: Closeable {
         onReconnectSuccess: suspend (host: String, port: Int) -> Unit,
         onReconnectFailure: suspend (Throwable) -> Unit,
         shouldAutoReconnect: () -> Boolean = { true },
-    ) = withContext(dispatcher) {
-        val target = sessionState().currentTarget ?: return@withContext
+    ) {
+        val target = sessionState().currentTarget ?: return
         val host = target.host
         val port = target.port
-
-        while (sessionState().isConnected && sessionState().currentTarget == target) {
-            if (!isForeground()) {
-                delay(intervalMs)
-                continue
-            }
-
-            delay(intervalMs)
-            val alive = runCatching {
-                keepAliveCheck(host, port)
-            }.getOrElse { false }
-            if (alive) continue
-            if (!shouldAutoReconnect()) break
-
-            try {
-                reconnect(host, port)
-                withContext(Dispatchers.Main) {
-                    onReconnectSuccess(host, port)
-                }
-            } catch (error: Exception) {
-                withContext(Dispatchers.Main) {
-                    onReconnectFailure(error)
-                }
-                break
-            }
+        withContext(dispatcher) {
+            keepAlive.runLoop(KeepAlivePolicy(
+                intervalMs = intervalMs,
+                isConnected = { sessionState().isConnected && sessionState().currentTarget == target },
+                isForeground = isForeground,
+                keepAliveCheck = { keepAliveCheck(host, port) },
+                reconnect = { reconnect(host, port) },
+                onReconnectSuccess = { onReconnectSuccess(host, port) },
+                onReconnectFailure = onReconnectFailure,
+                shouldAutoReconnect = shouldAutoReconnect,
+            ))
         }
     }
 
@@ -119,15 +108,9 @@ internal class DeviceAdbBackgroundRunner: Closeable {
                 continue
             }
 
-            val portToReplace = savedShortcuts()
-                .filter { it != knownDevice }
-                .firstNotNullOfOrNull { device ->
-                    device.addresses.firstNotNullOfOrNull { addr ->
-                        val ct = ConnectionTarget.unmarshalFrom(addr)
-                        if (ct != null && ct.host == discoveredHost && ct.port != discoveredPort) ct.port
-                        else null
-                    }
-                }
+            // When mDNS advertises a new port for a host we already know under a different port,
+            // swap the stale port before attempting the discovered connection.
+            val portToReplace = computeMdnsPortChange(savedShortcuts(), knownDevice, discoveredHost, discoveredPort)
             if (portToReplace != null) {
                 withContext(Dispatchers.Main) {
                     onMdnsPortChanged(discoveredHost, portToReplace, discoveredPort)
@@ -149,3 +132,23 @@ internal class DeviceAdbBackgroundRunner: Closeable {
         executor.shutdownNow()
     }
 }
+
+/**
+ * Pure helper backing the mDNS auto-reconnect loop: given the discovered host/port and the known
+ * device it matches, find a stale port recorded for that same host on a *different* shortcut and
+ * return it so the caller can swap it. Returns null when no such stale port exists.
+ */
+private fun computeMdnsPortChange(
+    savedShortcuts: List<DeviceShortcut>,
+    knownDevice: DeviceShortcut,
+    discoveredHost: String,
+    discoveredPort: Int,
+): Int? = savedShortcuts
+    .filter { it != knownDevice }
+    .firstNotNullOfOrNull { device ->
+        device.addresses.firstNotNullOfOrNull { addr ->
+            val ct = ConnectionTarget.unmarshalFrom(addr)
+            if (ct != null && ct.host == discoveredHost && ct.port != discoveredPort) ct.port
+            else null
+        }
+    }

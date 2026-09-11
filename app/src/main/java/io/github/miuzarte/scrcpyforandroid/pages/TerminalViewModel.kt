@@ -70,6 +70,7 @@ internal class TerminalViewModel: ViewModel() {
     val sessionHolder = arrayOfNulls<TerminalSession>(1)
 
     private fun startShellWriter() {
+        runCatching { shellWriteChannel.close() }
         shellWriteChannel = Channel(Channel.UNLIMITED)
         shellWriterJob = viewModelScope.launch(Dispatchers.IO) {
             for (payload in shellWriteChannel) {
@@ -244,6 +245,7 @@ internal class TerminalViewModel: ViewModel() {
     fun closeShell() {
         shellWriterJob?.cancel()
         shellWriterJob = null
+        runCatching { shellWriteChannel.close() }
         runCatching { shellStream?.close() }
         shellStream = null
         _shellReady.value = false

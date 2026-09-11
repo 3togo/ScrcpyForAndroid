@@ -212,13 +212,7 @@ fun MainScreen() {
             appSettings.saveBundle(asBundle)
         }
     }
-    DisposableEffect(Unit) {
-        onDispose {
-            taskScope.launch {
-                appSettings.saveBundle(asBundleLatest)
-            }
-        }
-    }
+
 
     val qdBundleShared by quickDevices.bundleState.collectAsState()
     val qdBundleSharedLatest by rememberUpdatedState(qdBundleShared)
@@ -238,8 +232,9 @@ fun MainScreen() {
     DisposableEffect(Unit) {
         onDispose {
             taskScope.launch {
+                appSettings.saveBundle(asBundleLatest)
                 quickDevices.saveBundle(qdBundleLatest)
-            }
+            }.invokeOnCompletion { taskScope.cancel() }
         }
     }
 
@@ -272,7 +267,7 @@ fun MainScreen() {
     val deviceConnectionServices = remember(scrcpy) {
         val adbCoordinator = DeviceAdbConnectionCoordinator()
         val connectionStateStore = ConnectionStateStore()
-        val connectionController = ConnectionController(
+        val connectionController = DeviceConnectionController(
             scrcpy = scrcpy,
             stateStore = connectionStateStore,
             adbCoordinator = adbCoordinator,

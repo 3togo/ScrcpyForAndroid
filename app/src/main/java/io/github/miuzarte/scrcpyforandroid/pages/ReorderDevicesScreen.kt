@@ -41,7 +41,7 @@ fun ReorderDevicesScreen(
         onDispose {
             taskScope.launch {
                 quickDevices.saveBundle(qdBundleLatest)
-            }
+            }.invokeOnCompletion { taskScope.cancel() }
         }
     }
 

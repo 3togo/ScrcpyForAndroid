@@ -1,14 +1,8 @@
 package io.github.miuzarte.scrcpyforandroid.connection
 
-import android.graphics.Bitmap
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Devices
@@ -17,36 +11,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.key.*
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
 import io.github.miuzarte.scrcpyforandroid.R
-import io.github.miuzarte.scrcpyforandroid.scrcpy.ScrcpyAspectRatio
 import io.github.miuzarte.scrcpyforandroid.storage.Storage
 import io.github.miuzarte.scrcpyforandroid.ui.createThemeController
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.distinctUntilChanged
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Shared Compose shell; TV chooses roomy spacing and explicit remote focus traversal. */
@@ -225,21 +198,11 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                             }
                         }
                         ConnectionDialog.PLAYBACK -> {
-                            val options = state.preferences.playback
-                            Text(stringResource(R.string.connection_settings_help))
-                            ActionButton(stringResource(if (options.audio) R.string.connection_audio_on else R.string.connection_audio_off), focus.modifier("audio")) {
-                                controller.setPlayback(options.copy(audio = !options.audio))
-                            }
-                            ActionButton(fillLabel(options.renderFit), focus.modifier("fill")) {
-                                val modes = listOf("FIT", "STRETCH", "CROP", "LONG_EDGE")
-                                controller.setPlayback(options.copy(renderFit = modes[(modes.indexOf(options.renderFit) + 1) % modes.size]))
-                            }
-                            ActionButton(ratioLabel(options), focus.modifier("ratio")) {
-                                val modes = ScrcpyAspectRatio.presets
-                                controller.setPlayback(options.copy(aspectRatio = modes[(modes.indexOfFirst { it.name == options.aspectRatio } + 1) % modes.size].name))
-                            }
-                            if (custom) InputField(options.customRatio, { controller.setPlayback(options.copy(customRatio = it)) },
-                                stringResource(R.string.scrcpyopt_aspect_ratio_custom), focus, "custom")
+                            PlaybackSettingsBody(
+                                options = state.preferences.playback,
+                                setPlayback = controller::setPlayback,
+                                focus = focus,
+                            )
                         }
                         else -> Unit
                     }
@@ -259,123 +222,6 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
         }
     }
 }
-
-@Composable
-private fun QrImage(payload: String, modifier: Modifier) {
-    val bitmap by produceState<Bitmap?>(null, payload) {
-        value = if (payload.isEmpty()) null else withContext(Dispatchers.Default) {
-            val size = 480
-            val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, size, size)
-            val pixels = IntArray(size * size) { if (matrix[it % size, it / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
-            Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
-        }
-    }
-    Box(modifier, contentAlignment = Alignment.Center) {
-        bitmap?.let { Image(it.asImageBitmap(), stringResource(R.string.tv_qr_pair), Modifier.fillMaxSize()) }
-            ?: CircularProgressIndicator()
-    }
-}
-
-@Composable
-private fun ActionButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val colors = MaterialTheme.colorScheme
-    OutlinedButton(onClick = onClick, enabled = enabled,
-        modifier = modifier.fillMaxWidth().heightIn(min = 52.dp).onFocusChanged { focused = it.isFocused },
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(if (focused) 3.dp else 1.dp, if (focused) colors.primary else colors.outline),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (focused) colors.primary.copy(alpha = .15f) else colors.surface,
-            contentColor = colors.onSurface,
-        ), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)) {
-        Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth())
-    }
-}
-
-@Composable
-private fun InputField(value: String, onValueChange: (String) -> Unit, label: String, focus: FocusChain,
-    key: String, numeric: Boolean = false, enabled: Boolean = true) {
-    val keyboard = LocalSoftwareKeyboardController.current
-    var editing by remember { mutableStateOf(!focus.remote) }
-    var activatingKey by remember { mutableStateOf<Key?>(null) }
-    // State-based fields support keeping the keyboard closed while navigating with a remote.
-    val textState = remember { TextFieldState(value) }
-    val latestValue by rememberUpdatedState(value)
-    val updateValue by rememberUpdatedState(onValueChange)
-    LaunchedEffect(textState) {
-        snapshotFlow { textState.text.toString() }.distinctUntilChanged().collect {
-            if (it != latestValue) updateValue(it)
-        }
-    }
-    OutlinedTextField(state = textState, label = { Text(label) }, lineLimits = TextFieldLineLimits.SingleLine, enabled = enabled,
-        modifier = focus.modifier(key).fillMaxWidth()
-            .onFocusChanged { if (!it.isFocused && focus.remote) editing = false }
-            .onPreviewKeyEvent {
-                if (focus.remote && (it.key == Key.DirectionDown || it.key == Key.DirectionUp)) {
-                    if (it.type == KeyEventType.KeyDown) {
-                        editing = false
-                        keyboard?.hide()
-                        focus.move(key, if (it.key == Key.DirectionDown) 1 else -1)
-                    }
-                    true
-                } else if (focus.remote && (it.key == Key.DirectionCenter || it.key == Key.Enter) &&
-                    (!editing || activatingKey == it.key)) {
-                    // Turning this option on starts an input session even if focus was already held.
-                    // Consume both halves of the activation key so its release cannot submit Done.
-                    if (it.type == KeyEventType.KeyDown) { activatingKey = it.key; editing = true }
-                    else if (it.type == KeyEventType.KeyUp) activatingKey = null
-                    true
-                } else false
-            },
-        keyboardOptions = KeyboardOptions(keyboardType = if (numeric) KeyboardType.Number else KeyboardType.Uri,
-            imeAction = ImeAction.Done, showKeyboardOnFocus = editing),
-        onKeyboardAction = { editing = !focus.remote; keyboard?.hide(); focus.move(key, 1) })
-}
-
-private class FocusTarget {
-    val requester = FocusRequester()
-    val placed = CompletableDeferred<Unit>()
-}
-
-private class FocusChain(val keys: List<String>, val targets: Map<String, FocusTarget>, val remote: Boolean) {
-    private val order = RemoteFocusOrder(keys)
-    private val requesters = targets.mapValues { it.value.requester }
-    suspend fun requestWhenPlaced(key: String) {
-        val target = targets[key] ?: targets.getValue(keys.first())
-        // BoxWithConstraints and Dialog subcompose after the parent's effects run.
-        target.placed.await()
-        target.requester.requestFocus()
-    }
-    fun request(key: String) { (requesters[key] ?: requesters.getValue(keys.first())).requestFocus() }
-    fun move(key: String, direction: Int) = request(order.move(key, direction))
-    fun modifier(key: String): Modifier = Modifier.testTag(key)
-        .onGloballyPositioned { targets.getValue(key).placed.complete(Unit) }
-        .focusRequester(requesters.getValue(key)).focusProperties {
-        if (remote) {
-            up = requesters.getValue(order.previous(key))
-            down = requesters.getValue(order.next(key))
-            previous = up; next = down
-        }
-    }
-}
-
-@Composable
-private fun rememberFocusChain(keys: List<String>, remote: Boolean): FocusChain {
-    val pool = remember { mutableMapOf<String, FocusTarget>() }
-    return FocusChain(keys, keys.associateWith { pool.getOrPut(it) { FocusTarget() } }, remote)
-}
-
-@Composable
-private fun fillLabel(mode: String) = stringResource(R.string.tv_fullscreen_fill, stringResource(when (mode) {
-    "STRETCH" -> R.string.scrcpyopt_render_fit_stretch
-    "CROP" -> R.string.scrcpyopt_render_fit_crop
-    "LONG_EDGE" -> R.string.scrcpyopt_render_fit_long_edge
-    else -> R.string.scrcpyopt_render_fit_fit
-}))
-
-@Composable
-private fun ratioLabel(options: PlaybackPreferences) = stringResource(R.string.tv_video_ratio,
-    ScrcpyAspectRatio.presets.firstOrNull { it.name == options.aspectRatio }?.toString().orEmpty())
 
 @Composable
 private fun Status(state: ConnectionUiState) {
@@ -398,9 +244,6 @@ private fun Status(state: ConnectionUiState) {
         ConnectionStatus.PAIR_FAILED -> R.string.tv_pair_failed
         ConnectionStatus.ERROR -> R.string.tv_error
     }, state.error.orEmpty())
-    Text(message, style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-        color = if (state.status in listOf(ConnectionStatus.ERROR, ConnectionStatus.INVALID_ADDRESS,
-                ConnectionStatus.INVALID_CODE, ConnectionStatus.QR_TIMEOUT, ConnectionStatus.PAIR_FAILED)) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurfaceVariant)
+    StatusLine(message, state.status in listOf(ConnectionStatus.ERROR, ConnectionStatus.INVALID_ADDRESS,
+        ConnectionStatus.INVALID_CODE, ConnectionStatus.QR_TIMEOUT, ConnectionStatus.PAIR_FAILED))
 }

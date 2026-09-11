@@ -47,7 +47,7 @@ internal class ConnectionStateStore {
                     isConnected = true,
                     currentTarget = target,
                     connectedScrcpyProfileId = scrcpyProfileId,
-                    statusLine = "${target.host}:${target.port}",
+                    statusLine = ConnectionStatusLines.endpoint(target),
                 ),
                 disconnectCause = null,
                 lastError = null,
@@ -57,8 +57,8 @@ internal class ConnectionStateStore {
 
     fun markDisconnected(
         cause: DisconnectCause,
-        statusLine: String = "Disconnected",
-        connectedDeviceLabel: String = "Disconnected",
+        statusLine: String = ConnectionStatusLines.DISCONNECTED,
+        connectedDeviceLabel: String = ConnectionStatusLines.DISCONNECTED,
     ) {
         update {
             it.copy(
@@ -75,7 +75,7 @@ internal class ConnectionStateStore {
     fun markConnectionFailed(message: String?) {
         update {
             it.copy(
-                adbSession = it.adbSession.copy(statusLine = "ADB connection failed"),
+                adbSession = it.adbSession.copy(statusLine = ConnectionStatusLines.ADB_CONNECTION_FAILED),
                 disconnectCause = DisconnectCause.ConnectFailed,
                 lastError = message,
             )

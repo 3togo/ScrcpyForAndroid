@@ -8,7 +8,7 @@ import java.io.Closeable
 private const val TAG = "DeviceAdbAutoReconnectManager"
 
 internal class DeviceAdbAutoReconnectManager(
-    private val controller: ConnectionController,
+    private val controller: DeviceConnectionController,
     private val stateStore: ConnectionStateStore,
     private val backgroundRunner: DeviceAdbBackgroundRunner = DeviceAdbBackgroundRunner(),
 ): Closeable {

@@ -11,17 +11,6 @@ index 894c1d52..40e1a879 100644
      description = "javadocJar"
      archiveClassifier.set("javadoc")
  }
-diff --git a/docs/demo/build.gradle.kts b/docs/demo/build.gradle.kts
-index 8d77aa6f..22e8602d 100644
---- a/docs/demo/build.gradle.kts
-+++ b/docs/demo/build.gradle.kts
-@@ -34,5 +34,5 @@ kotlin {
- }
- 
- rootProject.plugins.withType<YarnPlugin> {
--    rootProject.the<YarnRootExtension>().lockFileDirectory = rootProject.file("docs/demo").resolve("kotlin-js-store")
-+    rootProject.the<YarnRootExtension>().lockFileDirectoryProperty.set(rootProject.layout.projectDirectory.dir("docs/demo/kotlin-js-store"))
- }
 diff --git a/example/desktop/build.gradle.kts b/example/desktop/build.gradle.kts
 index 5ac5296b..61a0db23 100644
 --- a/example/desktop/build.gradle.kts
