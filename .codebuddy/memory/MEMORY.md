@@ -15,6 +15,11 @@
 - Supersedes the earlier Git Flow decision: `main` is the single integration branch; use short-lived branches (normally `codex/*`) and merge back after checks. Retire `develop` and the long-lived Linux branch.
 - `origin` is 3togo/ScrCaster; `upstream` is Miuzarte/ScrcpyForAndroid. Preserve upstream ancestry with merge commits; no squash/rebase for sync PRs. See CONTRIBUTING.md for the current workflow.
 
+## Testing strategy (decided 2026-09-11)
+- Prefer offline unit tests for deterministic behavior: connection state, validation, persistence, cancellation, and remote focus policy. They are faster, cheaper, repeatable, and do not depend on a TV, phone, ADB, network, or UI-window timing.
+- Use instrumentation and real hardware only for platform or physical integration that cannot be established offline, then keep that to a focused smoke test when the feature is ready for release validation.
+- If a UI focus test is flaky because of dialog or window timing, extract its navigation policy into a JVM test and leave a small UI test for reachability. Do not repeatedly consume hardware time to chase a timing assertion.
+
 ## miuix dependency (decided 2026-09-08)
 - `submodule/miuix` (url `compose-miuix-ui/miuix.git`) is included as a composite build via `includeBuild("submodule/miuix")` in `settings.gradle.kts`.
 - Pin a published upstream commit; `.gitmodules` `branch = main` only selects the branch for explicit remote updates. Build compatibility edits are tracked in `patches/miuix/build-compatibility.patch` and applied by `scripts/prepare-miuix.sh`. Reverse this patch before updating the submodule.

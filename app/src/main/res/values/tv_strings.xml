@@ -1,5 +1,5 @@
 <resources>
-    <string name="tv_title">Scrcpy TV receiver</string>
+    <string name="tv_title">ScrCaster</string>
     <string name="tv_instructions">Connect both devices to the same network. Enable network debugging on the phone. During playback, Back or Menu opens receiver controls; arrows and OK control the phone.</string>
     <string name="tv_host">Phone IP address or hostname</string>
     <string name="tv_port">ADB connection port</string>
@@ -69,4 +69,13 @@
     <string name="tv_mapping_saved">%1$s assigned to %2$s</string>
     <string name="tv_fullscreen_fill">Fullscreen fill: %1$s</string>
     <string name="tv_video_ratio">Aspect ratio: %1$s</string>
+    <string name="connection_last_device">Your phone</string>
+    <string name="connection_add_device">Connect a phone</string>
+    <string name="connection_playback">Picture and sound</string>
+    <string name="connection_playback_settings">Playback settings</string>
+    <string name="connection_audio_on">Phone audio: On</string>
+    <string name="connection_audio_off">Phone audio: Off</string>
+    <string name="connection_settings_help">Changes apply the next time you connect. During playback, use the receiver menu for live picture controls.</string>
+    <string name="connection_remote_help">During playback, press Back or Menu for receiver controls. Arrows and OK control your phone.</string>
+    <string name="connection_waiting_phone">Waiting for your phone to scan the code…</string>
 </resources>

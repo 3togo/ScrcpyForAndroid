@@ -1,8 +1,32 @@
 # Android TV receiver
 
-The TV launcher opens a remote-friendly connection screen. The regular launcher
-also selects this screen when Android reports a television/Leanback device.
-The existing phone UI remains available on phones and tablets.
+The TV launcher opens the shared Compose connection screen in remote mode. The
+regular launcher also selects this screen when Android reports a television/Leanback
+device. The home groups **Devices** and **Settings**, uses the same saved color
+palette and language as the phone interface, and displays the last phone address.
+The existing phone interface remains the phone entry point during this first
+stage of the migration.
+
+## Shared connection architecture
+
+- `connection/ConnectionController.kt` owns pairing, connection, cancellation,
+  errors, successful endpoint persistence, and playback events. It has no Activity
+  or UI dependencies; the backend and preference store are injectable.
+- `connection/AndroidConnectionBackend.kt` adapts the existing ADB coordinator,
+  mDNS discovery, scrcpy session and screen-on policy. The preference adapter keeps
+  the existing `tv_connection` file and keys, preserving installed TV settings.
+- `connection/ConnectionScreen.kt` owns Compose presentation. Remote mode adds
+  explicit Up/Down traversal and focus restoration; the layout stacks on smaller
+  widths. It shares the phone's Miuix palette through Material controls that support
+  keyboard focus.
+- `TvActivity` is the launcher/lifecycle adapter. It requests network permission,
+  handles Back, and opens the existing `StreamActivity` in receiver mode.
+
+The next phone stage can adopt this controller and screen without duplicating the
+pairing flow. This stage does not replace the phone's device manager, terminal,
+file manager, or profile editor with the receiver home.
+
+## Connect a phone
 
 1. Keep the phone and TV on the same local network.
 2. Select **Connect with QR code**. On the phone open Developer
@@ -18,13 +42,19 @@ The existing phone UI remains available on phones and tablets.
   enter `IP address:port` from the main Wireless debugging screen. This also
   supports a USB-authorized legacy `phone-IP:5555` endpoint.
 
-The home screen remembers the last phone for reconnecting. No address fields
+The home screen remembers the last successfully connected phone and reconnects
+on a fresh launch. Failed attempts do not overwrite it. No address fields
 are shown for QR setup. A failed connection-port lookup opens the address form.
+
+**Playback settings** groups audio, fullscreen fill and aspect ratio, including
+custom ratios. These values persist immediately and apply on the next connection.
+Existing playback-menu picture controls remain available during a session.
 
 ## Remote controls
 
 - All setup dialogs use large buttons with explicit Up/Down navigation and a
-  visible focus highlight. OK activates buttons or opens the keyboard. Keyboard
+  visible focus highlight. Closing a dialog restores focus to its home action.
+  OK activates buttons or opens the keyboard. Keyboard
   Done moves to the next control. Back closes a dialog.
 - Playback: arrows, OK/Enter, and media playback keys are forwarded to the phone.
   Whether these navigate the phone app depends on that app's keyboard support.
@@ -44,6 +74,38 @@ all fields/buttons, pairing, failed-connection retry, portrait and landscape
 streams, audio, Back/Menu access, disconnect and reconnect. Verify normal phone
 launch still opens the upstream interface. Do not interpret a successful APK
 build as proof that a source app handles D-pad input.
+
+## Testing strategy for the Compose migration
+
+Run the offline unit suite for every change. It covers deterministic connection,
+pairing, persistence, cancellation, and remote-focus policy without requiring a TV,
+phone, network, or ADB. Device checks are a short release-readiness smoke test for
+Android input, keyboard, and receiver playback; they are not the default feedback
+loop for UI logic.
+
+## Automated checks
+
+```sh
+./build.sh --skip-sdk-setup :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest -PabiList=armeabi-v7a
+# Install the resulting app and androidTest APK on the target TV, then:
+# Run methods separately on boxes that kill the test process between activities.
+for method in manualFieldsLeadToAllActionsAndBack playbackSettingsAndCustomRatioAreReachable validAddressAndKeyboardDoneConnectTheEnteredEndpoint invalidAddressLeavesFormOpenForCorrection qrDialogCanReturnToHomeAction; do
+  adb -s DEVICE shell am instrument -w -e class "io.github.miuzarte.scrcpyforandroid.TvNavigationTest#$method" io.github.togo3.scrcaster.tvdebug.test/androidx.test.runner.AndroidJUnitRunner
+done
+```
+
+Controller tests cover pairing versus connection ports, missing advertisements,
+invalid input, cancellation and late discovery, failed-connection cleanup,
+certificate rejection, QR retry, resume, and saved preferences. Compose tests use
+an isolated fake backend and do not modify the receiver's saved phone or pairing
+keys. They exercise D-pad focus, manual forms, QR actions, and custom ratio input.
+The QR focus order itself is also a JVM test, avoiding a transient Android dialog
+window-focus assertion.
+On the Skyworth Q601B (Android 10, armeabi-v7a), the migrated debug app was
+installed over the existing receiver without changing its saved preferences.
+Direct D-pad checks confirmed form traversal and OK-to-open-keyboard behavior.
+Physical HDMI-CEC delivery and a new phone pairing approval still need hardware
+validation.
 
 ## Picture proportions
 
