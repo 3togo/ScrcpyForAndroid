@@ -1,0 +1,8 @@
+log_level=info
+video_source=camera
+audio_source=mic
+tunnel_forward=true
+control=false
+display_id=0
+camera_ar=16:9
+camera_fps=30

@@ -1,0 +1,4 @@
+log_level=info
+tunnel_forward=true
+new_display=1920x1080/320
+flex_display=true

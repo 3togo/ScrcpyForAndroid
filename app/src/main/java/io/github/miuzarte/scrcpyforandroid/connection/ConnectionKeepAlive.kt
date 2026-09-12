@@ -34,6 +34,12 @@ internal data class KeepAlivePolicy(
 
 internal class ConnectionKeepAlive(
     private val dispatcher: CoroutineDispatcher,
+    /**
+     * Dispatcher the policy callbacks are invoked on. The production default is the Android main
+     * thread because the callbacks touch Compose state and snackbars; it is a constructor seam so
+     * the loop can be driven from plain JVM tests, where no main dispatcher exists.
+     */
+    private val notifyDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
     private var job: Job? = null
 
@@ -60,9 +66,9 @@ internal class ConnectionKeepAlive(
             if (!policy.shouldAutoReconnect()) break
             try {
                 policy.reconnect()
-                withContext(Dispatchers.Main) { policy.onReconnectSuccess() }
+                withContext(notifyDispatcher) { policy.onReconnectSuccess() }
             } catch (error: Exception) {
-                withContext(Dispatchers.Main) { policy.onReconnectFailure(error) }
+                withContext(notifyDispatcher) { policy.onReconnectFailure(error) }
                 break
             }
         }

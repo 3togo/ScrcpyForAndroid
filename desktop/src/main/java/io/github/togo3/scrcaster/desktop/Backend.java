@@ -157,7 +157,11 @@ final class Backend implements AutoCloseable {
             if (!result.contains("Successfully paired")) throw new IOException("Pairing did not succeed");
         } catch (IOException error) {
             // Do not expose native command output: a backend could echo its input.
-            throw new IOException("QR pairing failed. Generate a new QR code and scan it again.");
+            throw new IOException(
+                "The phone was discovered, but ADB rejected QR pairing. Keep Wireless debugging " +
+                "enabled, confirm both devices are on the same Wi-Fi subnet, disable VPN or guest " +
+                "network isolation, then generate a new QR code and scan it again."
+            );
         } finally { Arrays.fill(secret, '\0'); }
     }
     String run(List<String> command, char[] input, Duration timeout) throws Exception {

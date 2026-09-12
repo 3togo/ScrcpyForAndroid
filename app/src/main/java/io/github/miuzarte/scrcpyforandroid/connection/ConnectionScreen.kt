@@ -173,6 +173,11 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                         }
                         ConnectionDialog.QR -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                                // QR scanability depends on this rendered size *and* the short RANDOM-10
+                                // fields in QrPairingPayload.kt. A previous 32-character UUID payload
+                                // became too dense at this 220dp TV size and failed with a physical
+                                // Android 15 phone while manual address pairing still worked. Do not
+                                // shrink this or lengthen the payload without testing the actual TV UI.
                                 QrImage(state.qrPayload, Modifier.size(if (remote) 220.dp else 140.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(stringResource(R.string.tv_qr_instructions))

@@ -178,7 +178,7 @@ class ConnectionControllerTest {
 
     @Test fun keepAliveDoesNotDoubleConnectWhileInitialConnectInFlight() = runBlocking {
         store.value = ConnectionPreferences(lastEndpoint = phone)
-        backend.connectAction = { delay(250); streaming = true }
+        backend.connectAction = { delay(250); backend.streaming = true }
         val controller = ConnectionController(scope, backend, store, keepAliveIntervalMs = 50)
         controller.reconnect()
         delay(150)

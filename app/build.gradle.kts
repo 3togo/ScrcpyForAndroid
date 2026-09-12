@@ -1,5 +1,8 @@
+import com.android.build.api.variant.FilterConfiguration
 import java.net.URI
 import java.security.MessageDigest
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Properties
 
 plugins {
@@ -18,6 +21,8 @@ val configuredAbiList = (project.findProperty("abiList") as String?)
     ?: defaultAbiList
 val buildUniversalApk = configuredAbiList.size > 1
 val singleAbi = configuredAbiList.singleOrNull()
+val apkBuildTimestamp = LocalDateTime.now()
+    .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
 
 android {
     namespace = "io.github.miuzarte.scrcpyforandroid"
@@ -134,10 +139,18 @@ android {
 
 androidComponents {
     onVariants { variant ->
-        singleAbi?.let { abi ->
-            variant.outputs.forEach { output ->
-                output.outputFileName.set("app-$abi-${variant.name}.apk")
-            }
+        variant.outputs.forEach { output ->
+            val abi = output.filters
+                .firstOrNull { it.filterType == FilterConfiguration.FilterType.ABI }
+                ?.identifier
+                ?: singleAbi
+                ?: "universal"
+
+            output.outputFileName.set(
+                output.versionName.map { versionName ->
+                    "ScrCaster-v$versionName-$abi-${variant.name}-$apkBuildTimestamp.apk"
+                }
+            )
         }
     }
 }
@@ -174,6 +187,11 @@ dependencies {
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)
+    // 摄像头扫码配对 (仅解码二维码, 复用已有的 zxing core)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     implementation("com.github.promeg:tinypinyin:3.0.0")
 
     testImplementation(libs.junit)

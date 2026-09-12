@@ -196,6 +196,7 @@ internal fun DeviceTabPage(
     val listingsRefreshBusy by viewModel.listingsRefreshBusy.collectAsState()
     val listingsRefreshVersion by viewModel.listingsRefreshVersion.collectAsState()
     val busy by viewModel.busy.collectAsState()
+    val qrPairing by viewModel.qrPairing.collectAsState()
     val adbConnecting by viewModel.adbConnecting.collectAsState()
     val editingDeviceId by viewModel.editingDeviceId.collectAsState()
     val activeDeviceActionId by viewModel.activeDeviceActionId.collectAsState()
@@ -207,7 +208,6 @@ internal fun DeviceTabPage(
     val quickConnectInputTemp by viewModel.quickConnectInput.collectAsState()
 
     val adbConnected by viewModel.adbConnected.collectAsState()
-    val statusLine by viewModel.statusLine.collectAsState()
     val isQuickConnected by viewModel.isQuickConnected.collectAsState()
     val currentTarget by viewModel.currentTarget.collectAsState()
     val connectedDeviceLabel by viewModel.connectedDeviceLabel.collectAsState()
@@ -346,7 +346,6 @@ internal fun DeviceTabPage(
     fun StatusSection() {
 
         StatusCard(
-            statusLine = statusLine,
             adbConnected = adbConnected,
             streaming = sessionInfo != null,
             sessionInfo = sessionInfo,
@@ -571,8 +570,13 @@ internal fun DeviceTabPage(
         PairingCard(
             busy = busy,
             autoDiscoverOnDialogOpen = asBundle.adbPairingAutoDiscoverOnDialogOpen,
+            qrPairing = qrPairing,
+            cameraScanEnabled = asBundle.adbQrCameraScanEnabled,
             onDiscoverTarget = { viewModel.onDiscoverPairingTarget() },
             onPair = viewModel::onPair,
+            onStartQrPairing = viewModel::startQrPairing,
+            onStopQrPairing = viewModel::stopQrPairing,
+            onQrScanned = viewModel::onQrScanned,
         )
     }
 

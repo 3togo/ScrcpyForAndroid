@@ -1,19 +1,30 @@
 package io.github.miuzarte.scrcpyforandroid.pages
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.miuzarte.scrcpyforandroid.R
 import io.github.miuzarte.scrcpyforandroid.StreamActivity
+import io.github.miuzarte.scrcpyforandroid.connection.ConnectionStatus
+import io.github.miuzarte.scrcpyforandroid.connection.QrPairingResult
+import io.github.miuzarte.scrcpyforandroid.connection.QrPairingTransport
+import io.github.miuzarte.scrcpyforandroid.connection.QrPairingUiState
+import io.github.miuzarte.scrcpyforandroid.connection.runQrPairing
+import io.github.miuzarte.scrcpyforandroid.connection.runQrPairingWith
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.models.DeviceConnectionType
 import io.github.miuzarte.scrcpyforandroid.models.DeviceShortcut
 import io.github.miuzarte.scrcpyforandroid.models.DeviceShortcuts
+import io.github.miuzarte.scrcpyforandroid.nativecore.AdbMdnsDiscoverer
 import io.github.miuzarte.scrcpyforandroid.nativecore.UsbAdbSession
 import io.github.miuzarte.scrcpyforandroid.nativecore.UsbDeviceInfo
+import io.github.miuzarte.scrcpyforandroid.nativecore.pairQrSecret
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
+import io.github.miuzarte.scrcpyforandroid.scan.ScannedQr
+import io.github.miuzarte.scrcpyforandroid.scan.classifyScannedQr
 import io.github.miuzarte.scrcpyforandroid.services.*
 import io.github.miuzarte.scrcpyforandroid.services.EventLogger.logEvent
 import io.github.miuzarte.scrcpyforandroid.storage.AppSettings
@@ -36,6 +47,13 @@ private const val ADB_AUTO_RECONNECT_DISCOVER_TIMEOUT_MS = 2_000L
 private const val ADB_AUTO_RECONNECT_RETRY_INTERVAL_MS = 2_000L
 private const val ADB_TCP_PROBE_TIMEOUT_MS = 500
 private const val ADB_HEALTH_CHECK_INTERVAL_MS = 3_000L
+
+// 二维码配对: 等待对端设备扫描并广播配对服务的超时, 以及配对后查找连接端口的超时
+private const val QR_PAIRING_DISCOVERY_TIMEOUT_MS = 120_000L
+private const val QR_PAIRING_PORT_DISCOVERY_TIMEOUT_MS = 12_000L
+
+// 反向扫码: 对端配对服务只在其配对窗口内广播, 拿不到名称就无需再等满 120 秒
+private const val QR_SCAN_DISCOVERY_TIMEOUT_MS = 20_000L
 private const val TAG = "DeviceTabViewModel"
 
 @OptIn(FlowPreview::class)
@@ -1008,9 +1026,208 @@ internal class DeviceTabViewModel(
         return adbCoordinator.discoverPairingService(includeLanDevices = _asBundle.value.adbMdnsLanDiscovery)
     }
 
-    // TODO: unused
-    fun blacklistHost(host: String) {
-        sessionReconnectBlacklistHosts += host
+    private val _qrPairing = MutableStateFlow(QrPairingUiState())
+    val qrPairing: StateFlow<QrPairingUiState> = _qrPairing.asStateFlow()
+
+    private var qrPairingJob: Job? = null
+
+    // 反向扫码触发的配对任务, 与展示二维码的任务互斥, 避免两个 mDNS 监听同时跑
+    private var scannedQrPairingJob: Job? = null
+
+    /**
+     * 展示二维码等待对端设备扫描。扫描后对端 adbd 会以二维码中的服务名广播其配对服务,
+     * 本端发现后作为 adb 客户端完成配对, 再查找独立的连接端口并连接。
+     *
+     * 与 TV 接收端共用 [runQrPairing] 序列, 不重复实现配对时序。
+     */
+    fun startQrPairing() {
+        if (qrPairingJob?.isActive == true) return
+        _qrPairing.value = QrPairingUiState(active = true)
+        launchQrPairing(
+            setJob = { qrPairingJob = it },
+            block = {
+                runQrPairing(
+                    transport = qrPairingTransport(QR_PAIRING_DISCOVERY_TIMEOUT_MS),
+                    onPayload = { payload -> _qrPairing.update { it.copy(payload = payload) } },
+                    onStatus = { status -> _qrPairing.update { it.copy(status = status) } },
+                )
+            },
+            onFinished = ::onQrPairingFinished,
+        )
+    }
+
+    /**
+     * 两条 QR 配对路径共用的协程启动与异常收尾: 在 [viewModelScope] 中运行 [block], 取消时原样
+     * 向上抛出 [CancellationException], 其余异常记录日志并降级为 [QrPairingResult.PairFailed],
+     * 最后交给 [onFinished] 收尾。配对时序本身在 [runQrPairing]/[runQrPairingWith] 中, 不在此重复。
+     */
+    private fun launchQrPairing(
+        setJob: (Job?) -> Unit,
+        block: suspend () -> QrPairingResult,
+        onFinished: (QrPairingResult) -> Unit,
+    ) {
+        setJob(
+            viewModelScope.launch {
+                val result = try {
+                    block()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    logEvent(R.string.vm_pairing_failed, level = Log.ERROR, error = error)
+                    QrPairingResult.PairFailed
+                }
+                onFinished(result)
+            },
+        )
+    }
+
+    fun stopQrPairing() {
+        qrPairingJob?.cancel()
+        qrPairingJob = null
+        scannedQrPairingJob?.cancel()
+        scannedQrPairingJob = null
+        _qrPairing.value = QrPairingUiState()
+    }
+
+    private fun qrPairingTransport(discoveryTimeoutMs: Long) = object : QrPairingTransport {
+        override suspend fun findQrService(name: String) = runInterruptible(Dispatchers.IO) {
+            AdbMdnsDiscoverer.discoverQrService(name, discoveryTimeoutMs)
+        }
+
+        override suspend fun pair(host: String, port: Int, secret: String) =
+            pairQrSecret(secret) { adbCoordinator.pair(host, port, it) }
+
+        override suspend fun findConnection(host: String) = runInterruptible(Dispatchers.IO) {
+            AdbMdnsDiscoverer.discoverConnectForHost(host, QR_PAIRING_PORT_DISCOVERY_TIMEOUT_MS)
+        }
+    }
+
+    private fun onQrPairingFinished(result: QrPairingResult) {
+        applyQrPairingResult(
+            result,
+            timeoutMessage = R.string.device_pair_qr_timeout,
+            failureMessage = R.string.vm_pairing_failed,
+        )
+    }
+
+    /**
+     * 配对时序的收尾, 展示二维码与反向扫码两条路径共用: 成功后的行为完全一致, 失败文案各自传入,
+     * [afterFailure] 仅在失败时执行。
+     */
+    private fun applyQrPairingResult(
+        result: QrPairingResult,
+        timeoutMessage: Int,
+        failureMessage: Int,
+        afterFailure: () -> Unit = {},
+    ) {
+        when (result) {
+            is QrPairingResult.Timeout -> {
+                logEvent(timeoutMessage, level = Log.WARN)
+                AppRuntime.snackbar(timeoutMessage)
+                afterFailure()
+            }
+
+            is QrPairingResult.PairFailed -> {
+                AppRuntime.snackbar(failureMessage)
+                afterFailure()
+            }
+
+            is QrPairingResult.Paired -> {
+                logEvent(R.string.vm_pairing_succeeded)
+                _qrPairing.update { it.copy(active = false) }
+                val connection = result.connection
+                if (connection == null) {
+                    // 未广播连接服务时不猜测端口, 收起对话框并预填地址, 让用户补全设备上的无线调试端口
+                    _quickConnectInput.update { if (':' in result.host) "[${result.host}]:" else "${result.host}:" }
+                    AppRuntime.snackbar(R.string.device_pair_qr_paired_no_address)
+                    return
+                }
+                AppRuntime.snackbar(
+                    R.string.device_pair_qr_connected,
+                    "${connection.first}:${connection.second}",
+                )
+                onQuickConnect(ConnectionTarget(connection.first, connection.second))
+            }
+        }
+    }
+
+    /**
+     * 用扫到的服务名与密钥直接完成配对: 本应用自带 adb 客户端身份, 与手输配对码走同一条
+     * [runQrPairingWith] 时序 (发现配对服务 → 配对 → 找连接端口), 因此不依赖系统扫码界面。
+     *
+     * 只复用 [QrPairingUiState] 的 active 做入口互斥; 二维码对话框自己的显示状态在 widgets 里,
+     * 不会被本流程弹出来 —— 这里需要的是对端二维码里的内容, 不是再出示一张。
+     */
+    private fun startScannedQrPairing(name: String, secret: String) {
+        scannedQrPairingJob?.cancel()
+        _qrPairing.update { it.copy(active = true, payload = "", status = ConnectionStatus.PAIRING) }
+        AppRuntime.snackbar(R.string.device_scan_qr_pairing_started)
+        launchQrPairing(
+            setJob = { scannedQrPairingJob = it },
+            block = {
+                runQrPairingWith(
+                    transport = qrPairingTransport(QR_SCAN_DISCOVERY_TIMEOUT_MS),
+                    name = name,
+                    secret = secret,
+                    onStatus = { status -> _qrPairing.update { it.copy(status = status) } },
+                )
+            },
+            onFinished = ::onScannedQrPairingFinished,
+        )
+    }
+
+    private fun onScannedQrPairingFinished(result: QrPairingResult) {
+        scannedQrPairingJob = null
+        // 失败也要放开 active, 否则二维码入口会被一次没成功的扫码任务长期挡住
+        _qrPairing.update { it.copy(active = false) }
+        applyQrPairingResult(
+            result,
+            timeoutMessage = R.string.device_scan_qr_pairing_fallback,
+            failureMessage = R.string.device_scan_qr_pairing_fallback,
+            // 二维码可能已过期, 或对端只接受系统扫码入口; 退回系统设置页让用户自己完成
+            afterFailure = ::openWirelessDebuggingSettings,
+        )
+    }
+
+    /**
+     * 处理摄像头扫码结果。
+     *
+     * - 地址: 仅预填快速连接输入框, 由用户确认后再发起连接 —— 扫码内容不可信, 不自动外连。
+     * - 配对载荷: 本应用就是自己的 adb 客户端, 密钥写在本机应用数据里, 因此直接用扫到的
+     *   服务名与密钥配对; 只有配对不成时才退回系统的无线调试设置页。
+     */
+    fun onQrScanned(text: String) {
+        when (val scanned = classifyScannedQr(text)) {
+            is ScannedQr.Address -> {
+                _quickConnectInput.update { "${scanned.host}:${scanned.port}" }
+                AppRuntime.snackbar(R.string.device_scan_qr_address, scanned.host, scanned.port)
+            }
+
+            is ScannedQr.AdbPairing -> {
+                logEvent(R.string.vm_scan_qr_pairing, scanned.name, level = Log.INFO)
+                startScannedQrPairing(scanned.name, scanned.secret)
+            }
+
+            is ScannedQr.Text -> AppRuntime.snackbar(R.string.device_scan_qr_unknown)
+        }
+    }
+
+    private fun openWirelessDebuggingSettings() {
+        // 不用 Settings.ACTION_WIRELESS_DEBUGGING_SETTINGS 常量: 该字段标注为 API 30,
+        // 而本应用 minSdk 26, 写成字面量字符串可避开版本限定检查, 低版本上由 runCatching 兜底。
+        // 定制 ROM 可能根本不注册这个 action (实测 vivo PD2343 / Android 15: resolve-activity
+        // 返回 No activity found, 无线调试只做成了快捷面板磁贴), 因此再退到开发者选项页。
+        val wirelessDebugging = Intent("android.settings.WIRELESS_DEBUGGING_SETTINGS")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val developmentSettings = Intent("android.settings.APPLICATION_DEVELOPMENT_SETTINGS")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { AppRuntime.context.startActivity(wirelessDebugging) }
+            .recoverCatching { AppRuntime.context.startActivity(developmentSettings) }
+            .onSuccess { AppRuntime.snackbar(R.string.device_scan_qr_pairing) }
+            .onFailure {
+                Log.w(TAG, "no wireless debugging settings screen resolved", it)
+                AppRuntime.snackbar(R.string.device_scan_qr_pairing_unsupported)
+            }
     }
 
     fun startKeepAliveLoop() {

@@ -18,7 +18,8 @@ final class QrPairingTest {
         try {
             try (QrPairing session = new QrPairing(new Backend(script.toString(), "unused"), Duration.ofSeconds(3), Duration.ofSeconds(3))) {
                 String payload = session.payload();
-                assert payload.matches("WIFI:T:ADB;S:studio-[a-f0-9]{32};P:[a-f0-9]{32};;");
+                // Keep the desktop hardware-test proxy wire-compatible with the TV generator.
+                assert payload.matches("WIFI:T:ADB;S:studio-[a-zA-Z0-9]{10};P:[a-zA-Z0-9]{10};;");
                 var image = session.image();
                 int[] pixels = image.getRGB(0, 0, image.getWidth(), image.getHeight(), null, 0, image.getWidth());
                 var bitmap = new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(image.getWidth(), image.getHeight(), pixels)));
@@ -57,7 +58,7 @@ final class QrPairingTest {
                 backend.pairQr("localhost:1234", "private-secret".toCharArray());
             }
             // Linux adb can lack its mDNS daemon entirely; direct discovery must still pair.
-            Files.writeString(script, "#!/bin/sh\ncase \"$1\" in\nmdns) echo 'ERROR: mdns daemon unavailable'; exit 1;;\npair) read code; echo 'Successfully paired';;\nconnect) echo \"connected to $2\";;\nesac\n");
+            Files.writeString(script, "#!/bin/sh\ncase \"$1\" in\nmdns) echo 'ERROR: mdns daemon unavailable'; exit 1;;\npair) read code; echo 'Successfully paired';;\nconnect) [ \"$2\" = '10.0.0.2:5678' ] || exit 10; echo \"connected to $2\";;\nesac\n");
             List<QrPairing.Service> discovered = new ArrayList<>();
             boolean[] lifecycle = new boolean[2];
             QrPairing.Discovery discovery = new QrPairing.Discovery() {
@@ -67,6 +68,8 @@ final class QrPairingTest {
             };
             try (QrPairing session = new QrPairing(new Backend(script.toString(), "unused"), Duration.ofSeconds(3), Duration.ofSeconds(3), discovery)) {
                 discovered.add(new QrPairing.Service("\"" + session.name() + "\"", "_adb-tls-pairing._tcp", "10.0.0.2:1234"));
+                // A stale, closed advertisement must not prevent trying the phone's live port.
+                discovered.add(new QrPairing.Service("phone-stale", "_adb-tls-connect._tcp", "10.0.0.2:4567"));
                 discovered.add(new QrPairing.Service("phone", "_adb-tls-connect._tcp", "10.0.0.2:5678"));
                 assert session.awaitPairing(s -> {}).equals("10.0.0.2:5678");
             }

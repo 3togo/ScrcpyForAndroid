@@ -169,7 +169,8 @@ adb -s DEVICE shell getprop ro.build.version.release
 ./build.sh --skip-sdk-setup assembleDebug -PabiList=armeabi-v7a
 ```
 
-The output is `app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk`.
+The output follows
+`app/build/outputs/apk/debug/ScrCaster-v<version>-armeabi-v7a-debug-<yyyyMMdd-HHmmss>.apk`.
 Here, legacy `armeabi` in the reported ABI list does not require a separate legacy
 build: the device explicitly supports `armeabi-v7a`. Inspect packaged `lib/`
 directories to verify the artifact, rather than relying only on its filename.

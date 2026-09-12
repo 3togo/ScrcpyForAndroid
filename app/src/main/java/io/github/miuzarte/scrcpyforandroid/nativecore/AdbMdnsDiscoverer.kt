@@ -10,11 +10,14 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+
+private const val CONNECT_PROBE_TIMEOUT_MS = 750
 
 /**
  * Performs mDNS discovery for ADB TLS pairing/connect services on the local network.
@@ -48,8 +51,15 @@ internal object AdbMdnsDiscoverer {
     fun discoverQrService(name: String, timeoutMs: Long): Pair<String, Int>? =
         discoverService(TLS_PAIRING, timeoutMs, true, expectedName = name)
 
+    /**
+     * Finds a live TLS connection port, not merely the first matching mDNS record. Android may
+     * briefly advertise both its current port and a stale, already-closed port after adbd rotates
+     * ports. Returning the stale record made TV QR pairing fail while entering the current address
+     * manually worked. The reachability probe only opens and closes TCP; the subsequent ADB TLS
+     * handshake still authenticates the endpoint before it can be used.
+     */
     fun discoverConnectForHost(host: String, timeoutMs: Long): Pair<String, Int>? =
-        discoverService(TLS_CONNECT, timeoutMs, true, expectedHost = host)
+        discoverService(TLS_CONNECT, timeoutMs, true, expectedHost = host, requireReachable = true)
 
     private fun discoverService(
         serviceType: String,
@@ -57,12 +67,21 @@ internal object AdbMdnsDiscoverer {
         includeLanDevices: Boolean,
         expectedName: String? = null,
         expectedHost: String? = null,
+        requireReachable: Boolean = false,
     ): Pair<String, Int>? {
         check(::nsdManager.isInitialized) { "AdbMdnsDiscoverer is not initialized" }
         val resultPort = AtomicInteger(-1)
         val resultHost = AtomicReference<String?>(null)
         val discoveryFinished = AtomicBoolean(false)
         val latch = CountDownLatch(1)
+
+        fun accept(hostAddress: String, port: Int) {
+            if (resultPort.compareAndSet(-1, port)) {
+                resultHost.set(hostAddress)
+                discoveryFinished.set(true)
+                latch.countDown()
+            }
+        }
 
         val discoveryListener = object: NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {
@@ -111,10 +130,14 @@ internal object AdbMdnsDiscoverer {
                             if (!isPortOpened(serviceInfo.port)) return
                         }
 
-                        if (resultPort.compareAndSet(-1, serviceInfo.port)) {
-                            resultHost.set(hostAddress)
-                            discoveryFinished.set(true)
-                            latch.countDown()
+                        if (requireReachable) {
+                            // Do not block NsdManager's callback thread while a stale port times out.
+                            Thread({
+                                if (!discoveryFinished.get() && isReachableAdbEndpoint(hostAddress, serviceInfo.port))
+                                    accept(hostAddress, serviceInfo.port)
+                            }, "adb-mdns-port-probe").start()
+                        } else {
+                            accept(hostAddress, serviceInfo.port)
                         }
                     }
                 }
@@ -163,4 +186,18 @@ internal object AdbMdnsDiscoverer {
     private const val TAG = "AdbMdnsDiscoverer"
     private const val TLS_CONNECT = "_adb-tls-connect._tcp"
     private const val TLS_PAIRING = "_adb-tls-pairing._tcp"
+}
+
+/** TCP preflight used to discard stale mDNS records before the authenticated ADB connection. */
+internal fun isReachableAdbEndpoint(
+    host: String,
+    port: Int,
+    timeoutMs: Int = CONNECT_PROBE_TIMEOUT_MS,
+): Boolean = try {
+    Socket().use {
+        it.connect(InetSocketAddress(host, port), timeoutMs)
+        true
+    }
+} catch (_: IOException) {
+    false
 }

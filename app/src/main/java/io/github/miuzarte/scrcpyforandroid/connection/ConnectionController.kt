@@ -225,27 +225,31 @@ internal class ConnectionController(
         }
     }
 
+    /** Adapts this controller's endpoint-typed backend to the shared QR pairing sequence. */
+    private val qrTransport = object : QrPairingTransport {
+        override suspend fun findQrService(name: String) = backend.findQrService(name)?.let { it.host to it.port }
+        override suspend fun pair(host: String, port: Int, secret: String) =
+            backend.pair(ConnectionEndpoint(host, port), secret)
+        override suspend fun findConnection(host: String) = backend.findConnection(host)?.let { it.host to it.port }
+    }
+
     private suspend fun pairQr() {
-        val pairing = buildAdbQrPairing()
-        mutableState.update { it.copy(qrPayload = pairing.payload) }
-        val endpoint = backend.findQrService(pairing.name)
-        coroutineContext.ensureActive()
-        if (endpoint == null) {
-            mutableState.update { it.copy(status = ConnectionStatus.QR_TIMEOUT) }
-            return
-        }
-        mutableState.update { it.copy(status = ConnectionStatus.PAIRING) }
-        if (!backend.pair(endpoint, pairing.secret)) {
-            mutableState.update { it.copy(status = ConnectionStatus.PAIR_FAILED) }
-            return
-        }
-        afterPairing(endpoint.host)
+        val result = runQrPairing(
+            qrTransport,
+            onPayload = { payload -> mutableState.update { it.copy(qrPayload = payload) } },
+            onStatus = { status -> mutableState.update { it.copy(status = status) } },
+        )
+        if (result is QrPairingResult.Paired)
+            finishPairing(result.host, result.connection?.let { ConnectionEndpoint(it.first, it.second) })
     }
 
     private suspend fun afterPairing(host: String) {
         coroutineContext.ensureActive()
         mutableState.update { it.copy(status = ConnectionStatus.FINDING_PORT) }
-        val endpoint = backend.findConnection(host)
+        finishPairing(host, backend.findConnection(host))
+    }
+
+    private suspend fun finishPairing(host: String, endpoint: ConnectionEndpoint?) {
         coroutineContext.ensureActive()
         if (endpoint == null) {
             // Never reuse the pairing port as a connection port.

@@ -121,6 +121,10 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
             booleanPreferencesKey("floating_bottom_bar_blur"),
             false,
         )
+        val ALLOW_LANDSCAPE_ON_TALL_PHONES = Pair(
+            booleanPreferencesKey("allow_landscape_on_tall_phones"),
+            false,
+        )
 
         // Scrcpy
         val LOW_LATENCY = Pair(
@@ -252,6 +256,11 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
             booleanPreferencesKey("adb_pairing_auto_discover_on_dialog_open"),
             true,
         )
+        // 摄像头扫码为可选能力, 默认关闭 (不申请相机权限)
+        val ADB_QR_CAMERA_SCAN_ENABLED = Pair(
+            booleanPreferencesKey("adb_qr_camera_scan_enabled"),
+            false,
+        )
         val ADB_AUTO_RECONNECT_PAIRED_DEVICE = Pair(
             booleanPreferencesKey("adb_auto_reconnect_paired_device"),
             true,
@@ -319,6 +328,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         val blur: Boolean,
         val floatingBottomBar: Boolean,
         val floatingBottomBarBlur: Boolean,
+        val allowLandscapeOnTallPhones: Boolean,
 
         // Scrcpy
         val lowLatency: Boolean,
@@ -355,6 +365,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         // ADB
         val adbKeyName: String,
         val adbPairingAutoDiscoverOnDialogOpen: Boolean,
+        val adbQrCameraScanEnabled: Boolean,
         val adbAutoReconnectPairedDevice: Boolean,
         val adbMdnsLanDiscovery: Boolean,
         val adbAutoLoadAppListOnConnect: Boolean,
@@ -385,6 +396,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         bundleField(BLUR) { it.blur },
         bundleField(FLOATING_BOTTOM_BAR) { it.floatingBottomBar },
         bundleField(FLOATING_BOTTOM_BAR_BLUR) { it.floatingBottomBarBlur },
+        bundleField(ALLOW_LANDSCAPE_ON_TALL_PHONES) { it.allowLandscapeOnTallPhones },
 
         // Scrcpy
         bundleField(LOW_LATENCY) { it.lowLatency },
@@ -421,6 +433,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         // ADB
         bundleField(ADB_KEY_NAME) { it.adbKeyName },
         bundleField(ADB_PAIRING_AUTO_DISCOVER_ON_DIALOG_OPEN) { it.adbPairingAutoDiscoverOnDialogOpen },
+        bundleField(ADB_QR_CAMERA_SCAN_ENABLED) { it.adbQrCameraScanEnabled },
         bundleField(ADB_AUTO_RECONNECT_PAIRED_DEVICE) { it.adbAutoReconnectPairedDevice },
         bundleField(ADB_MDNS_LAN_DISCOVERY) { it.adbMdnsLanDiscovery },
         bundleField(ADB_AUTO_LOAD_APP_LIST_ON_CONNECT) { it.adbAutoLoadAppListOnConnect },
@@ -452,6 +465,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         blur = preferences.read(BLUR),
         floatingBottomBar = preferences.read(FLOATING_BOTTOM_BAR),
         floatingBottomBarBlur = preferences.read(FLOATING_BOTTOM_BAR_BLUR),
+        allowLandscapeOnTallPhones = preferences.read(ALLOW_LANDSCAPE_ON_TALL_PHONES),
 
         // Scrcpy
         lowLatency = preferences.read(LOW_LATENCY),
@@ -492,6 +506,7 @@ class AppSettings(context: Context): Settings(context, "AppSettings") {
         adbKeyName = preferences.read(ADB_KEY_NAME),
         adbPairingAutoDiscoverOnDialogOpen =
             preferences.read(ADB_PAIRING_AUTO_DISCOVER_ON_DIALOG_OPEN),
+        adbQrCameraScanEnabled = preferences.read(ADB_QR_CAMERA_SCAN_ENABLED),
         adbAutoReconnectPairedDevice = preferences.read(ADB_AUTO_RECONNECT_PAIRED_DEVICE),
         adbMdnsLanDiscovery = preferences.read(ADB_MDNS_LAN_DISCOVERY),
         adbAutoLoadAppListOnConnect = preferences.read(ADB_AUTO_LOAD_APP_LIST_ON_CONNECT),

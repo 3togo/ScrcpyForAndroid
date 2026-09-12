@@ -48,10 +48,15 @@ import io.github.miuzarte.scrcpyforandroid.NativeCoreFacade
 import io.github.miuzarte.scrcpyforandroid.R
 import io.github.miuzarte.scrcpyforandroid.constants.ScrcpyPresets
 import io.github.miuzarte.scrcpyforandroid.constants.UiSpacing
+import io.github.miuzarte.scrcpyforandroid.connection.ConnectionStatus
+import io.github.miuzarte.scrcpyforandroid.connection.QrImage
+import io.github.miuzarte.scrcpyforandroid.connection.QrPairingUiState
+import io.github.miuzarte.scrcpyforandroid.connection.StatusLine
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.models.DeviceShortcut
 import io.github.miuzarte.scrcpyforandroid.scaffolds.ArrowSlider
 import io.github.miuzarte.scrcpyforandroid.scaffolds.SuperTextField
+import io.github.miuzarte.scrcpyforandroid.scan.QrScanDialog
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.Codec
 import io.github.miuzarte.scrcpyforandroid.scrcpy.TouchEventHandler
@@ -80,8 +85,6 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun StatusCard(
-    // TODO: unused
-    statusLine: String,
     adbConnected: Boolean,
     streaming: Boolean,
     sessionInfo: Scrcpy.Session.SessionInfo?,
@@ -186,13 +189,25 @@ internal fun StatusCard(
 internal fun PairingCard(
     busy: Boolean,
     autoDiscoverOnDialogOpen: Boolean,
+    qrPairing: QrPairingUiState,
+    cameraScanEnabled: Boolean,
     onDiscoverTarget: (suspend () -> Pair<String, Int>?)? = null,
     onPair: (host: String, port: String, code: String) -> Unit,
+    onStartQrPairing: () -> Unit,
+    onStopQrPairing: () -> Unit,
+    onQrScanned: (String) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
 
     val showPairDialog = remember { mutableStateOf(false) }
     val holdDownState = remember { mutableStateOf(false) }
+    val showQrDialog = remember { mutableStateOf(false) }
+    val showScanDialog = remember { mutableStateOf(false) }
+
+    // 配对成功并已发起连接后自动收起二维码对话框
+    LaunchedEffect(qrPairing.active) {
+        if (!qrPairing.active) showQrDialog.value = false
+    }
 
     Card {
         ArrowPreference(
@@ -205,6 +220,28 @@ internal fun PairingCard(
             holdDownState = holdDownState.value,
             enabled = !busy,
         )
+        ArrowPreference(
+            title = stringResource(R.string.device_pair_qr_title),
+            summary = stringResource(R.string.device_pair_qr_summary),
+            onClick = {
+                haptic.contextClick()
+                showQrDialog.value = true
+                onStartQrPairing()
+            },
+            enabled = !busy && !qrPairing.active,
+        )
+        // 摄像头扫码为可选能力, 关闭时不占用界面也不申请相机权限
+        if (cameraScanEnabled) {
+            ArrowPreference(
+                title = stringResource(R.string.device_scan_qr_title),
+                summary = stringResource(R.string.device_scan_qr_summary),
+                onClick = {
+                    haptic.contextClick()
+                    showScanDialog.value = true
+                },
+                enabled = !busy,
+            )
+        }
     }
 
     PairingDialog(
@@ -217,6 +254,111 @@ internal fun PairingCard(
     ) { host, port, code ->
         showPairDialog.value = false
         onPair(host, port, code)
+    }
+
+    QrPairingDialog(
+        showDialog = showQrDialog.value,
+        state = qrPairing,
+        onDismissRequest = {
+            showQrDialog.value = false
+            onStopQrPairing()
+        },
+        onRetry = {
+            onStopQrPairing()
+            onStartQrPairing()
+        },
+        onUsePairingCode = {
+            showQrDialog.value = false
+            onStopQrPairing()
+            showPairDialog.value = true
+            holdDownState.value = true
+        },
+    )
+
+    QrScanDialog(
+        show = showScanDialog.value,
+        onDismissRequest = { showScanDialog.value = false },
+        onScanned = { text ->
+            showScanDialog.value = false
+            onQrScanned(text)
+        },
+    )
+}
+
+/**
+ * QrPairingDialog
+ *
+ * Purpose:
+ * - Phone-layout counterpart of the TV receiver's QR dialog: it only presents the payload and the
+ *   session status, the pairing sequence itself stays in
+ *   [io.github.miuzarte.scrcpyforandroid.connection.runQrPairing].
+ */
+@Composable
+private fun QrPairingDialog(
+    showDialog: Boolean,
+    state: QrPairingUiState,
+    onDismissRequest: () -> Unit,
+    onRetry: () -> Unit,
+    onUsePairingCode: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val isError = state.status == ConnectionStatus.QR_TIMEOUT ||
+            state.status == ConnectionStatus.PAIR_FAILED
+    val statusText = stringResource(
+        when (state.status) {
+            ConnectionStatus.PAIRING -> R.string.device_pair_qr_pairing
+            ConnectionStatus.FINDING_PORT -> R.string.device_pair_qr_finding_port
+            ConnectionStatus.QR_TIMEOUT -> R.string.device_pair_qr_timeout
+            ConnectionStatus.PAIR_FAILED -> R.string.vm_pairing_failed
+            else -> R.string.device_pair_qr_waiting
+        },
+    )
+
+    OverlayDialog(
+        show = showDialog,
+        title = stringResource(R.string.device_pair_qr_title),
+        summary = stringResource(R.string.device_pair_qr_desc),
+        defaultWindowInsetsPadding = false,
+        onDismissRequest = onDismissRequest,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(UiSpacing.ContentVertical),
+        ) {
+            // An empty payload still renders the spinner inside QrImage.
+            QrImage(state.payload, Modifier.size(240.dp))
+            StatusLine(statusText, isError, Modifier.fillMaxWidth())
+            TextButton(
+                text = stringResource(R.string.device_pair_qr_retry),
+                onClick = {
+                    haptic.contextClick()
+                    onRetry()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(UiSpacing.ContentHorizontal),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                TextButton(
+                    text = stringResource(R.string.device_pair_qr_code_instead),
+                    onClick = {
+                        haptic.contextClick()
+                        onUsePairingCode()
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = stringResource(R.string.button_done),
+                    onClick = {
+                        haptic.contextClick()
+                        onDismissRequest()
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 

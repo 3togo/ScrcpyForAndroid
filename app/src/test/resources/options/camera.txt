@@ -1,0 +1,12 @@
+log_level=info
+video_source=camera
+audio_source=mic
+tunnel_forward=true
+control=false
+display_id=0
+camera_id=0
+camera_size=1280x720
+camera_fps=30
+camera_high_speed=true
+camera_torch=true
+camera_zoom=2

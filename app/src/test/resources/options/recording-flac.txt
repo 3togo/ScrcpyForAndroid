@@ -1,0 +1,5 @@
+log_level=info
+video=false
+audio_codec=flac
+tunnel_forward=true
+power_on=false

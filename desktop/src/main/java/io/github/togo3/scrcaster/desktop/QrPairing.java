@@ -27,8 +27,8 @@ final class QrPairing implements AutoCloseable {
     private final Backend backend;
     private final Duration discoveryTimeout;
     private final Duration connectionTimeout;
-    private final String name = "studio-" + randomHex();
-    private final char[] secret = randomHex().toCharArray();
+    private final String name = "studio-" + randomValue();
+    private final char[] secret = randomValue().toCharArray();
     private volatile boolean closed;
     private final Discovery directDiscovery;
     private boolean directStarted;
@@ -43,10 +43,16 @@ final class QrPairing implements AutoCloseable {
         this.discoveryTimeout = discoveryTimeout;
         this.connectionTimeout = connectionTimeout;
     }
-    private static String randomHex() {
-        byte[] bytes = new byte[16];
-        new SecureRandom().nextBytes(bytes);
-        return HexFormat.of().formatHex(bytes);
+    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String RANDOM_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static String randomValue() {
+        // Match Android's RANDOM-10 ADB QR fields. UUID-sized fields make the QR substantially
+        // denser and caused the reported TV-to-Android-15 failure after the TV UI reduced its
+        // display size; this shorter desktop payload paired with that phone in the hardware proxy
+        // test. Keep both generators identical so future computer-to-phone tests remain useful.
+        StringBuilder value = new StringBuilder(10);
+        for (int i = 0; i < 10; i++) value.append(RANDOM_ALPHABET.charAt(RANDOM.nextInt(RANDOM_ALPHABET.length())));
+        return value.toString();
     }
     String name() { return name; }
     synchronized String payload() {
@@ -101,7 +107,12 @@ final class QrPairing implements AutoCloseable {
             Thread.sleep(1000);
         }
         ensureActive();
-        if (pairing == null) throw new IOException("No phone discovered. Keep both devices on the same network and allow multicast UDP 5353, then generate a new QR code.");
+        if (pairing == null) throw new IOException(
+            "No phone discovered after the QR scan. Confirm the phone and computer are on the " +
+            "same Wi-Fi subnet (not a guest network), Wireless debugging is still enabled, and " +
+            "VPN, hotspot/client isolation, or a firewall is not blocking multicast UDP 5353. " +
+            "Then generate a new QR code and scan it again."
+        );
         status.accept("Phone found. Pairing…");
         char[] password;
         synchronized (this) { ensureActive(); password = secret.clone(); }
@@ -109,22 +120,27 @@ final class QrPairing implements AutoCloseable {
         ensureActive();
         status.accept("Paired. Finding the connection port…");
         deadline = System.nanoTime() + connectionTimeout.toNanos();
+        Set<String> attempted = new HashSet<>();
         while (System.nanoTime() < deadline) {
             String host = pairing.host();
             List<Service> connections;
             try {
                 connections = discover().stream().filter(s -> s.type.equals("_adb-tls-connect._tcp") && s.host().equals(host)).distinct().toList();
             } catch (IOException e) { ensureActive(); return null; }
-            // Do not guess if a host advertises multiple Android endpoints.
-            if (connections.size() == 1) {
+            // Android/mDNS may retain a stale service when adbd changes its random TLS port. A
+            // real phone advertised one open and one closed endpoint simultaneously; requiring
+            // exactly one made QR pairing appear to fail even though manual address entry worked.
+            // Trying each unique advertisement is safe: ADB still performs TLS authentication,
+            // and only an endpoint authorized by the pairing completed above can succeed.
+            for (Service connection : connections) {
                 ensureActive();
-                String endpoint = connections.get(0).address;
+                String endpoint = connection.address;
+                if (!attempted.add(endpoint)) continue;
                 String output;
-                try { output = backend.adb(Duration.ofSeconds(10), "connect", endpoint); }
-                catch (IOException e) { ensureActive(); return null; }
+                try { output = backend.adb(Duration.ofSeconds(5), "connect", endpoint); }
+                catch (IOException e) { ensureActive(); continue; }
                 ensureActive();
                 if (output.contains("connected to " + endpoint)) return endpoint;
-                return null;
             }
             Thread.sleep(1000);
         }

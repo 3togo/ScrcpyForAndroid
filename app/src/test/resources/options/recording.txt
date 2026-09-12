@@ -1,0 +1,7 @@
+log_level=info
+video_bit_rate=8000000
+audio_bit_rate=128000
+video_codec=h265
+audio_codec=aac
+max_fps=60
+tunnel_forward=true

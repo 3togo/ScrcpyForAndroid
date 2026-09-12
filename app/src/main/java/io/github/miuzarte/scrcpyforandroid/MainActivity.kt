@@ -2,7 +2,6 @@ package io.github.miuzarte.scrcpyforandroid
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Rect
@@ -15,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import io.github.miuzarte.scrcpyforandroid.pages.MainScreen
 import io.github.miuzarte.scrcpyforandroid.password.BiometricGate
 import io.github.miuzarte.scrcpyforandroid.password.PasswordRepository
@@ -22,11 +22,17 @@ import io.github.miuzarte.scrcpyforandroid.password.hasAuthenticatedOrigin
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import io.github.miuzarte.scrcpyforandroid.services.AppScreenOn
 import io.github.miuzarte.scrcpyforandroid.storage.Storage.appSettings
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.Locale
 
 // 生物认证需要 FragmentActivity
 class MainActivity: FragmentActivity() {
+
+    // 主界面方向策略的设置缓存, 仅在主线程读写; 默认值与存储层默认一致
+    private var allowLandscapeOnTallPhones = false
 
     override fun attachBaseContext(newBase: Context) {
         val languageTag = getAppLanguageTag(newBase)
@@ -48,11 +54,13 @@ class MainActivity: FragmentActivity() {
             finish()
             return
         }
-        applyMainOrientationPolicy()
-
         // no logEvent before context init
         AppRuntime.init(applicationContext)
         AppScreenOn.register(window)
+
+        // 方向策略需读取设置, 必须在 AppRuntime 初始化之后; 后续变更由下方流监听器同步
+        allowLandscapeOnTallPhones = appSettings.bundleState.value.allowLandscapeOnTallPhones
+        applyMainOrientationPolicy()
 
         runBlocking {
             PasswordRepository.refresh()
@@ -75,6 +83,17 @@ class MainActivity: FragmentActivity() {
         requestNearbyDevicePermissions()
 
         enableEdgeToEdge()
+
+        // 设置变更后立即重算主界面方向策略, 无需重启 Activity
+        lifecycleScope.launch {
+            appSettings.bundleState
+                .map { it.allowLandscapeOnTallPhones }
+                .distinctUntilChanged()
+                .collect {
+                    allowLandscapeOnTallPhones = it
+                    applyMainOrientationPolicy()
+                }
+        }
 
         setContent {
             MainScreen()
@@ -116,12 +135,11 @@ class MainActivity: FragmentActivity() {
     }
 
     private fun applyMainOrientationPolicy() {
-        val aspectRatio = currentDisplayAspectRatio()
-        requestedOrientation =
-            if (aspectRatio > PHONE_LANDSCAPE_LOCK_ASPECT_RATIO)
-                ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-            else
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // 仅读取已缓存的设置值: TV 路径在 onCreate 中提前 return, 此时存储层尚未初始化
+        requestedOrientation = mainUiRequestedOrientation(
+            displayAspectRatio = currentDisplayAspectRatio(),
+            allowLandscapeOnTallPhones = allowLandscapeOnTallPhones,
+        )
     }
 
     private fun currentDisplayAspectRatio(): Float {
@@ -138,8 +156,6 @@ class MainActivity: FragmentActivity() {
     }
 
     internal companion object {
-        private const val PHONE_LANDSCAPE_LOCK_ASPECT_RATIO = 16f / 9f
-
         private const val LOCALE_PREFS = "locale_cache"
         private const val KEY_LANGUAGE_TAG = "language_tag"
 

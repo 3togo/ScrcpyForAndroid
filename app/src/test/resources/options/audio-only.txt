@@ -1,0 +1,5 @@
+log_level=info
+video=false
+audio_source=mic
+tunnel_forward=true
+power_on=false

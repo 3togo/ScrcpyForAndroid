@@ -244,7 +244,11 @@ public final class DesktopApp {
                 append("QR pairing complete. Connected to " + connection + ".");
                 task("Preparing mirroring", () -> loadDevices(connection), () -> mirror(connection));
             } else {
-                append("QR pairing complete. If the device is not listed, enter the connection address from Wireless debugging and choose Connect.");
+                append("QR pairing succeeded, but no live connection port was found. Check that " +
+                    "the phone and computer remain on the same Wi-Fi subnet and that VPN, guest " +
+                    "network/client isolation, or multicast filtering is disabled. Otherwise copy " +
+                    "the current IP address and port from the main Wireless debugging screen, enter " +
+                    "it above, and choose Connect.");
                 refresh();
             }
         });

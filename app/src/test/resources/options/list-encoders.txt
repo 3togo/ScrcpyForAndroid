@@ -1,0 +1,7 @@
+log_level=info
+video=false
+audio=false
+tunnel_forward=true
+control=false
+cleanup=false
+list_encoders=true

@@ -457,6 +457,16 @@ fun SettingsPage(
                         }
                     }
                 }
+                SwitchPreference(
+                    title = stringResource(R.string.pref_title_allow_landscape_main_ui),
+                    summary = stringResource(R.string.pref_summary_allow_landscape_main_ui),
+                    checked = asBundle.allowLandscapeOnTallPhones,
+                    onCheckedChange = {
+                        asBundle = asBundle.copy(
+                            allowLandscapeOnTallPhones = it,
+                        )
+                    },
+                )
             }
         }
 
@@ -1113,6 +1123,19 @@ fun SettingsPage(
                     onCheckedChange = {
                         asBundle = asBundle.copy(
                             adbPairingAutoDiscoverOnDialogOpen = it,
+                        )
+                    },
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.pref_title_camera_qr_scan),
+                    summary = stringResource(R.string.pref_summary_camera_qr_scan),
+                    checked = asBundle.adbQrCameraScanEnabled,
+                    onCheckedChange = {
+                        asBundle = asBundle.copy(
+                            adbQrCameraScanEnabled = it,
+                        )
+                        if (it) AppRuntime.snackbar(
+                            R.string.pref_summary_camera_qr_scan_note,
                         )
                     },
                 )
