@@ -1,3 +1,6 @@
+# This checkout intentionally carries patches/miuix/build-compatibility.patch after
+# scripts/prepare-miuix.sh runs. Verify/reapply it with that script; do not use an
+# ignore=dirty rule here, since that would also hide unrelated unrecorded edits.
 [submodule "submodule/miuix"]
 	path = submodule/miuix
 	url = https://github.com/compose-miuix-ui/miuix.git
