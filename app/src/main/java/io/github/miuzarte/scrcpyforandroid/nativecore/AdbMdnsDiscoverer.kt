@@ -12,6 +12,9 @@ import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -70,10 +73,18 @@ internal object AdbMdnsDiscoverer {
         requireReachable: Boolean = false,
     ): Pair<String, Int>? {
         check(::nsdManager.isInitialized) { "AdbMdnsDiscoverer is not initialized" }
+        if (timeoutMs <= 0) return null
         val resultPort = AtomicInteger(-1)
         val resultHost = AtomicReference<String?>(null)
         val discoveryFinished = AtomicBoolean(false)
         val latch = CountDownLatch(1)
+        val probeExecutor: ExecutorService? = if (requireReachable) {
+            Executors.newFixedThreadPool(MAX_CONCURRENT_PROBES) { task ->
+                Thread(task, "adb-mdns-port-probe").apply { isDaemon = true }
+            }
+        } else {
+            null
+        }
 
         fun accept(hostAddress: String, port: Int) {
             if (resultPort.compareAndSet(-1, port)) {
@@ -132,10 +143,17 @@ internal object AdbMdnsDiscoverer {
 
                         if (requireReachable) {
                             // Do not block NsdManager's callback thread while a stale port times out.
-                            Thread({
-                                if (!discoveryFinished.get() && isReachableAdbEndpoint(hostAddress, serviceInfo.port))
-                                    accept(hostAddress, serviceInfo.port)
-                            }, "adb-mdns-port-probe").start()
+                            try {
+                                probeExecutor?.execute {
+                                    if (!discoveryFinished.get() &&
+                                        isReachableAdbEndpoint(hostAddress, serviceInfo.port)
+                                    ) {
+                                        accept(hostAddress, serviceInfo.port)
+                                    }
+                                }
+                            } catch (_: RejectedExecutionException) {
+                                // Discovery timed out while this resolve callback was in flight.
+                            }
                         } else {
                             accept(hostAddress, serviceInfo.port)
                         }
@@ -153,12 +171,15 @@ internal object AdbMdnsDiscoverer {
             }
         }
 
-        nsdManager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
         try {
+            nsdManager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
             latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "discoverServices failed for $serviceType", error)
         } finally {
             discoveryFinished.set(true)
             runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+            probeExecutor?.shutdownNow()
         }
 
         val port = resultPort.get()
@@ -184,6 +205,7 @@ internal object AdbMdnsDiscoverer {
     }
 
     private const val TAG = "AdbMdnsDiscoverer"
+    private const val MAX_CONCURRENT_PROBES = 2
     private const val TLS_CONNECT = "_adb-tls-connect._tcp"
     private const val TLS_PAIRING = "_adb-tls-pairing._tcp"
 }
@@ -198,6 +220,6 @@ internal fun isReachableAdbEndpoint(
         it.connect(InetSocketAddress(host, port), timeoutMs)
         true
     }
-} catch (_: IOException) {
+} catch (_: Exception) {
     false
 }

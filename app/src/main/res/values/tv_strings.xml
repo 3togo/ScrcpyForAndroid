@@ -30,8 +30,11 @@
     <string name="tv_qr_finding_port">Paired. Finding the phone’s connection port…</string>
     <string name="tv_home_help">Mirror your phone on this TV. Keep both devices on the same network.</string>
     <string name="tv_qr_start">Connect with QR code</string>
+    <string name="tv_handoff_start">Receive address via QR code</string>
+    <string name="tv_handoff_title">Receive address via QR code</string>
+    <string name="tv_handoff_help">Open ScrCaster on the phone, scan this code, and send the phone’s Wireless debugging address. Use this when the phone is not on the TV’s subnet — no mDNS needed.</string>
+    <string name="tv_handoff_waiting">Waiting for your phone to send its address…</string>
     <string name="tv_manual_options">Other ways to connect</string>
-    <string name="tv_reconnect">Reconnect to last phone</string>
     <string name="tv_home_ready">Select QR code to begin. Use ↑ ↓ to choose and OK to select.</string>
     <string name="tv_manual_help">Use a code for a new phone, or an address for a phone already paired with this TV.</string>
     <string name="tv_code_start">Use a pairing code</string>
@@ -69,7 +72,11 @@
     <string name="tv_mapping_saved">%1$s assigned to %2$s</string>
     <string name="tv_fullscreen_fill">Fullscreen fill: %1$s</string>
     <string name="tv_video_ratio">Aspect ratio: %1$s</string>
-    <string name="connection_last_device">Your phone</string>
+    <string name="connection_saved_devices">Saved phones</string>
+    <string name="connection_current_device">Current</string>
+    <string name="connection_forget_device">Forget</string>
+    <string name="connection_refreshing_devices">Refreshing saved phones…</string>
+    <string name="connection_devices_removed">Warning: unavailable phones were removed: %1$s</string>
     <string name="connection_add_device">Connect a phone</string>
     <string name="connection_playback">Picture and sound</string>
     <string name="connection_playback_settings">Playback settings</string>

@@ -2,12 +2,14 @@ package io.github.miuzarte.scrcpyforandroid.connection
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
 import io.github.miuzarte.scrcpyforandroid.nativecore.AdbMdnsDiscoverer
 import io.github.miuzarte.scrcpyforandroid.nativecore.pairQrSecret
+import io.github.miuzarte.scrcpyforandroid.nativecore.isReachableAdbEndpoint
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ClientOptions
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Scrcpy
 import io.github.miuzarte.scrcpyforandroid.scrcpy.ScrcpyAspectRatio
@@ -18,6 +20,9 @@ import io.github.miuzarte.scrcpyforandroid.services.DeviceAdbConnectionCoordinat
 import io.github.miuzarte.scrcpyforandroid.storage.Storage
 import io.github.togo3.scrcaster.core.AspectRatio
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 
@@ -27,8 +32,24 @@ internal class AndroidConnectionPreferences(context: Context) : ConnectionPrefer
     override fun load(): ConnectionPreferences {
         val host = preferences.getString("host", "").orEmpty()
         val port = preferences.getString("port", "5555")?.toIntOrNull()
+        val legacyEndpoint = if (host.isNotBlank() && port != null && port in 1..65535) {
+            ConnectionEndpoint(host, port)
+        } else null
+        val remembered = preferences.getString("devices", null)
+            ?.lineSequence()
+            ?.mapNotNull(ConnectionEndpoint::parse)
+            ?.distinct()
+            ?.toList()
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOfNotNull(legacyEndpoint)
+        val selected = preferences.getString("selected", null)
+            ?.let(ConnectionEndpoint::parse)
+            ?.takeIf { it in remembered }
+            ?: legacyEndpoint?.takeIf { it in remembered }
+            ?: remembered.firstOrNull()
         return ConnectionPreferences(
-            lastEndpoint = if (host.isNotBlank() && port != null && port in 1..65535) ConnectionEndpoint(host, port) else null,
+            lastEndpoint = selected,
+            rememberedEndpoints = remembered,
             playback = PlaybackPreferences(
                 audio = preferences.getBoolean("audio", true),
                 renderFit = preferences.getString("renderFit", "LONG_EDGE")
@@ -44,6 +65,8 @@ internal class AndroidConnectionPreferences(context: Context) : ConnectionPrefer
         this.preferences.edit {
             putString("host", preferences.lastEndpoint?.host.orEmpty())
             putString("port", preferences.lastEndpoint?.port?.toString().orEmpty())
+            putString("selected", preferences.lastEndpoint?.toString().orEmpty())
+            putString("devices", preferences.rememberedEndpoints.joinToString("\n"))
             putBoolean("audio", preferences.playback.audio)
             putString("renderFit", preferences.playback.renderFit)
             putString("aspectRatio", preferences.playback.aspectRatio)
@@ -86,6 +109,36 @@ internal class AndroidConnectionBackend : PairingConnectionBackend {
 
     override suspend fun findConnection(host: String) = runInterruptible(Dispatchers.IO) {
         AdbMdnsDiscoverer.discoverConnectForHost(host, 12_000)?.let { ConnectionEndpoint(it.first, it.second) }
+    }
+
+    override suspend fun awaitHandoff(onPayload: (String) -> Unit): ConnectionEndpoint? {
+        val server = HandoffServer.open() ?: run {
+            Log.w("AndroidConnectionBackend", "handoff: server could not start")
+            return null
+        }
+        return try {
+            onPayload(server.payload)
+            Log.i("AndroidConnectionBackend", "handoff: waiting on ${server.payload}")
+            server.awaitEndpoint().also { Log.i("AndroidConnectionBackend", "handoff: received $it") }
+        } finally {
+            server.close()
+        }
+    }
+
+    override suspend fun refreshDevices(
+        devices: List<ConnectionEndpoint>,
+    ): List<ConnectionEndpoint> = coroutineScope {
+        val directlyReachable = devices.map { endpoint ->
+            async(Dispatchers.IO) {
+                endpoint to isReachableAdbEndpoint(endpoint.host, endpoint.port)
+            }
+        }.awaitAll()
+        buildList {
+            for ((endpoint, reachable) in directlyReachable) {
+                if (reachable) add(endpoint)
+                else findConnection(endpoint.host)?.let(::add)
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 package io.github.miuzarte.scrcpyforandroid.scan
 
+import io.github.miuzarte.scrcpyforandroid.connection.HandoffTarget
 import io.github.miuzarte.scrcpyforandroid.connection.buildAdbQrPairing
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -89,5 +90,14 @@ class ScannedQrTest {
             classifyScannedQr("http://1.2.3.4:5555"),
         )
         assertEquals(ScannedQr.Text(""), classifyScannedQr("   "))
+    }
+
+    @Test fun receiverHandoffUrlIsRecognized() {
+        val target = HandoffTarget("172.16.20.143", 41234, "tok")
+        val handoff = ScannedQr.Handoff(target)
+        // TV 的"扫码接收地址"载荷, 必须优先于普通地址/文本被识别
+        assertEquals(handoff, classifyScannedQr("http://172.16.20.143:41234/tok"))
+        // 自定义 scheme 深链: 可由交接网页自动跳转, 或系统相机直接打开
+        assertEquals(handoff, classifyScannedQr("scrcaster://connect?h=172.16.20.143&p=41234&t=tok"))
     }
 }

@@ -78,9 +78,14 @@ internal object DirectAdbTransport {
             keyName.ifBlank { AppSettings.ADB_KEY_NAME.defaultValue },
             tcpMarker = true,
         )
-        conn.handshake(timeoutMs)
-        Log.i(TAG, "connect(): handshake success for $host:$port")
-        return conn
+        try {
+            conn.handshake(timeoutMs)
+            Log.i(TAG, "connect(): handshake success for $host:$port")
+            return conn
+        } catch (error: Throwable) {
+            conn.close()
+            throw error
+        }
     }
 
     /**
@@ -105,9 +110,14 @@ internal object DirectAdbTransport {
             keyName.ifBlank { AppSettings.ADB_KEY_NAME.defaultValue },
             deviceId,
         )
-        conn.handshake()
-        Log.i(TAG, "connectUsb(): handshake success for USB device $deviceId")
-        return conn
+        try {
+            conn.handshake()
+            Log.i(TAG, "connectUsb(): handshake success for USB device $deviceId")
+            return conn
+        } catch (error: Throwable) {
+            conn.close()
+            throw error
+        }
     }
 
     fun pair(host: String, port: Int, pairingCode: String): Boolean {

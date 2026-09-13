@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.Codec
+import io.github.miuzarte.scrcpyforandroid.nativecore.createStartedMediaCodec
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -27,6 +28,7 @@ class NativeWavRecorder(
         output.write(ByteArray(WAV_HEADER_SIZE))
     }
 
+    @Synchronized
     fun feedPacket(data: ByteArray, ptsUs: Long, isConfig: Boolean) {
         if (released) return
         if (isConfig) {
@@ -55,6 +57,7 @@ class NativeWavRecorder(
         drainDecoder()
     }
 
+    @Synchronized
     fun release() {
         if (released) return
         released = true
@@ -84,9 +87,10 @@ class NativeWavRecorder(
                 else -> null
             } ?: return
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return
-            val codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
+            val codec = createStartedMediaCodec(
+                create = { MediaCodec.createDecoderByType(mime) },
+                configure = { configure(format, null, null, 0) },
+            )
             decoder = codec
             decoderPrepared = true
         }.onFailure {

@@ -9,6 +9,7 @@ import android.view.Surface
 import io.github.togo3.scrcaster.core.AspectRatio
 import io.github.miuzarte.scrcpyforandroid.scrcpy.videoCrop
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Decoder always renders into a persistent SurfaceTexture-backed Surface.
@@ -78,6 +79,7 @@ class PersistentVideoRenderer {
     fun getDecoderSurface(): Surface {
         ensureInitialized()
         synchronized(initLock) {
+            check(!released) { "renderer already released" }
             return requireNotNull(decoderSurface) { "decoderSurface not initialized" }
         }
     }
@@ -101,18 +103,23 @@ class PersistentVideoRenderer {
         ensureInitialized()
         val latch = java.util.concurrent.CountDownLatch(1)
         var result: Surface? = null
-        handler.post {
+        val failure = AtomicReference<Throwable?>()
+        val posted = handler.post {
             try {
                 if (released) {
                     error("renderer already released")
                 }
                 recreateDecoderSurfaceLocked()
                 result = decoderSurface
+            } catch (error: Throwable) {
+                failure.set(error)
             } finally {
                 latch.countDown()
             }
         }
+        check(posted) { "renderer thread is not accepting work" }
         latch.await()
+        failure.get()?.let { throw it }
         return result ?: error("failed to recreate decoder surface")
     }
 
@@ -303,56 +310,81 @@ class PersistentVideoRenderer {
     }
 
     fun release() {
-        handler.post {
-            if (released) return@post
+        synchronized(initLock) {
+            if (released) return
             released = true
-            releaseDisplaySurfaceLocked()
-            releaseRecordSurfaceLocked()
-            runCatching { decoderSurface?.release() }
-            decoderSurface = null
-            runCatching { decoderSurfaceTexture?.release() }
-            decoderSurfaceTexture = null
-            if (program != 0) {
-                GLES20.glDeleteProgram(program)
-                program = 0
-            }
-            if (oesTextureId != 0) {
-                GLES20.glDeleteTextures(1, intArrayOf(oesTextureId), 0)
-                oesTextureId = 0
-            }
-            if (eglDisplay !== EGL14.EGL_NO_DISPLAY) {
-                EGL14.eglMakeCurrent(
-                    eglDisplay,
-                    EGL14.EGL_NO_SURFACE,
-                    EGL14.EGL_NO_SURFACE,
-                    EGL14.EGL_NO_CONTEXT,
-                )
-                if (eglPbufferSurface != EGL14.EGL_NO_SURFACE) {
-                    EGL14.eglDestroySurface(eglDisplay, eglPbufferSurface)
+            if (!handler.post {
+                    releaseResourcesLocked()
+                    renderThread.quitSafely()
                 }
-                EGL14.eglDestroyContext(eglDisplay, eglContext)
-                EGL14.eglTerminate(eglDisplay)
+            ) {
+                renderThread.quitSafely()
             }
-            eglDisplay = EGL14.EGL_NO_DISPLAY
-            eglContext = EGL14.EGL_NO_CONTEXT
-            eglPbufferSurface = EGL14.EGL_NO_SURFACE
-            eglConfig = null
-            renderThread.quitSafely()
         }
     }
 
     private fun ensureInitialized() {
+        check(!released) { "renderer already released" }
         if (initialized) return
         synchronized(initLock) {
             if (initialized) return
+            check(!released) { "renderer already released" }
             val latch = java.util.concurrent.CountDownLatch(1)
-            handler.post {
-                initializeLocked()
-                initialized = true
-                latch.countDown()
+            val failure = AtomicReference<Throwable?>()
+            val posted = handler.post {
+                try {
+                    initializeLocked()
+                    initialized = true
+                } catch (error: Throwable) {
+                    failure.set(error)
+                    released = true
+                    releaseResourcesLocked()
+                    renderThread.quitSafely()
+                } finally {
+                    latch.countDown()
+                }
             }
+            check(posted) { "renderer thread is not accepting work" }
             latch.await()
+            failure.get()?.let { throw it }
         }
+    }
+
+    /** Must run on [renderThread] while its EGL context can still be made current. */
+    private fun releaseResourcesLocked() {
+        releaseDisplaySurfaceLocked()
+        releaseRecordSurfaceLocked()
+        runCatching { decoderSurface?.release() }
+        decoderSurface = null
+        runCatching { decoderSurfaceTexture?.release() }
+        decoderSurfaceTexture = null
+        if (program != 0) {
+            GLES20.glDeleteProgram(program)
+            program = 0
+        }
+        if (oesTextureId != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(oesTextureId), 0)
+            oesTextureId = 0
+        }
+        if (eglDisplay !== EGL14.EGL_NO_DISPLAY) {
+            EGL14.eglMakeCurrent(
+                eglDisplay,
+                EGL14.EGL_NO_SURFACE,
+                EGL14.EGL_NO_SURFACE,
+                EGL14.EGL_NO_CONTEXT,
+            )
+            if (eglPbufferSurface != EGL14.EGL_NO_SURFACE) {
+                EGL14.eglDestroySurface(eglDisplay, eglPbufferSurface)
+            }
+            if (eglContext != EGL14.EGL_NO_CONTEXT) {
+                EGL14.eglDestroyContext(eglDisplay, eglContext)
+            }
+            EGL14.eglTerminate(eglDisplay)
+        }
+        eglDisplay = EGL14.EGL_NO_DISPLAY
+        eglContext = EGL14.EGL_NO_CONTEXT
+        eglPbufferSurface = EGL14.EGL_NO_SURFACE
+        eglConfig = null
     }
 
     private fun initializeLocked() {
@@ -638,18 +670,49 @@ class PersistentVideoRenderer {
 
     private fun createProgram(vertexShader: String, fragmentShader: String): Int {
         val vertex = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader)
-        val fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader)
-        return GLES20.glCreateProgram().also { program ->
-            GLES20.glAttachShader(program, vertex)
-            GLES20.glAttachShader(program, fragment)
-            GLES20.glLinkProgram(program)
+        val fragment = try {
+            compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader)
+        } catch (error: Throwable) {
+            GLES20.glDeleteShader(vertex)
+            throw error
+        }
+        val result = GLES20.glCreateProgram()
+        try {
+            check(result != 0) { "Unable to create GL program" }
+            val linkStatus = IntArray(1)
+            GLES20.glAttachShader(result, vertex)
+            GLES20.glAttachShader(result, fragment)
+            GLES20.glLinkProgram(result)
+            GLES20.glGetProgramiv(result, GLES20.GL_LINK_STATUS, linkStatus, 0)
+            check(linkStatus[0] == GLES20.GL_TRUE) {
+                "Unable to link GL program: ${GLES20.glGetProgramInfoLog(result)}"
+            }
+            return result
+        } catch (error: Throwable) {
+            if (result != 0) GLES20.glDeleteProgram(result)
+            throw error
+        } finally {
+            // Once linked, shader objects are no longer needed by the program.
+            GLES20.glDeleteShader(vertex)
+            GLES20.glDeleteShader(fragment)
         }
     }
 
     private fun compileShader(type: Int, source: String): Int {
-        return GLES20.glCreateShader(type).also { shader ->
+        val shader = GLES20.glCreateShader(type)
+        check(shader != 0) { "Unable to create GL shader" }
+        try {
+            val compileStatus = IntArray(1)
             GLES20.glShaderSource(shader, source)
             GLES20.glCompileShader(shader)
+            GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compileStatus, 0)
+            check(compileStatus[0] == GLES20.GL_TRUE) {
+                "Unable to compile GL shader: ${GLES20.glGetShaderInfoLog(shader)}"
+            }
+            return shader
+        } catch (error: Throwable) {
+            GLES20.glDeleteShader(shader)
+            throw error
         }
     }
 

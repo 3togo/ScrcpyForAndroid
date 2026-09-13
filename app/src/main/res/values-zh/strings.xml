@@ -79,6 +79,9 @@
     <string name="device_menu_quick_sort">快速设备排序</string>
     <string name="device_menu_virtual_button_sort">虚拟按钮排序</string>
     <string name="device_menu_clear_logs">清空日志</string>
+    <string name="device_refresh">刷新设备</string>
+    <string name="device_refresh_complete">设备列表已刷新</string>
+    <string name="device_refresh_removed">警告：设备已不可用并被移除：%1$s</string>
     <string name="device_hint_long_press_edit">长按可编辑</string>
     <string name="device_cannot_modify_connected">无法修改已连接的设备</string>
     <string name="device_added">已添加设备：%1$s:%2$s</string>
@@ -111,6 +114,10 @@
     <string name="device_scan_qr_pairing_fallback">未能用扫描到的二维码完成配对，正在打开系统设置；也可改用配对码。</string>
     <string name="device_scan_qr_pairing_started">正在与扫描到的设备配对…</string>
     <string name="device_scan_qr_pairing_unsupported">无法打开系统设置页。请手动进入开发者选项 → 无线调试，或改用配对码。</string>
+    <string name="device_handoff_sending">正在把本机无线调试地址发送给电视…</string>
+    <string name="device_handoff_sent">已发送地址，电视正在连接…</string>
+    <string name="device_handoff_no_port">读不到本机无线调试端口。正在打开电视接收页以便手动填写；也可先开启无线调试后重试。</string>
+    <string name="device_handoff_failed">无法连接电视接收端。请保持电视上的二维码界面打开后重新扫码。</string>
     <string name="vm_scan_qr_pairing">扫描到服务 %1$s 的 adb 配对二维码</string>
     <string name="device_quick_connect_title">连接 / 添加设备</string>
     <string name="device_status_mirroring">投屏中</string>

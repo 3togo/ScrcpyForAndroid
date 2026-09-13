@@ -56,6 +56,7 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.menu.OverlayIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 
@@ -87,6 +88,7 @@ internal fun DeviceTabScreen(
     var showTwoPaneSideAction by remember { mutableStateOf(false) }
     var configPanelOnLeft by remember { mutableStateOf(true) }
     var twoPaneSideToggleRequest by remember { mutableIntStateOf(0) }
+    var deviceRefreshRequest by remember { mutableIntStateOf(0) }
     val blurBackdrop = rememberBlurBackdrop(LocalEnableBlur.current)
     val blurActive = blurBackdrop != null
 
@@ -97,6 +99,17 @@ internal fun DeviceTabScreen(
                     if (blurActive) Color.Transparent
                     else colorScheme.surface
                 val topAppBarActions: @Composable RowScope.() -> Unit = {
+                    IconButton(
+                        onClick = {
+                            haptic.contextClick()
+                            deviceRefreshRequest++
+                        },
+                    ) {
+                        Icon(
+                            imageVector = MiuixIcons.Refresh,
+                            contentDescription = stringResource(R.string.device_refresh),
+                        )
+                    }
                     if (showTwoPaneSideAction) {
                         IconButton(
                             onClick = {
@@ -165,6 +178,7 @@ internal fun DeviceTabScreen(
                 scrollBehavior = scrollBehavior,
                 bottomInnerPadding = bottomInnerPadding,
                 twoPaneSideToggleRequest = twoPaneSideToggleRequest,
+                deviceRefreshRequest = deviceRefreshRequest,
                 onPreviewGestureLockChanged = onPreviewGestureLockChanged,
                 onOpenFullscreenCompat = onOpenFullscreenCompat,
                 onCompactTopAppBarChanged = { useCompactTopAppBar = it },
@@ -185,6 +199,7 @@ internal fun DeviceTabPage(
     scrollBehavior: ScrollBehavior,
     bottomInnerPadding: Dp,
     twoPaneSideToggleRequest: Int = 0,
+    deviceRefreshRequest: Int = 0,
     onPreviewGestureLockChanged: (Boolean) -> Unit = {},
     onOpenFullscreenCompat: () -> Unit = {},
     onCompactTopAppBarChanged: (Boolean) -> Unit = {},
@@ -232,6 +247,19 @@ internal fun DeviceTabPage(
     val usbEvents by usbWatcher.eventsFlow.collectAsState()
     LaunchedEffect(Unit) { usbWatcher.startWatching() }
     DisposableEffect(Unit) { onDispose { usbWatcher.stopWatching() } }
+
+    LaunchedEffect(deviceRefreshRequest) {
+        if (deviceRefreshRequest == 0) return@LaunchedEffect
+        val removed = usbWatcher.refreshConnectedDevices()
+        if (removed.isEmpty()) {
+            AppRuntime.snackbar(R.string.device_refresh_complete)
+        } else {
+            AppRuntime.snackbar(
+                R.string.device_refresh_removed,
+                removed.joinToString { it.getDisplayName() },
+            )
+        }
+    }
 
     // 设备插拔 Snackbar 提示 (OTG 两段枚举会触发多次广播, 按事件+设备 500ms 去重)
     val lastUsbEventSnackbarKey = remember { mutableStateOf<Pair<String, Long>?>(null) }

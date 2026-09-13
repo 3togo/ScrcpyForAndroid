@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.Codec
+import io.github.miuzarte.scrcpyforandroid.nativecore.createStartedMediaCodec
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -30,6 +31,7 @@ class NativeAacRecorder(
     private var encoderOutputEnded = false
     private var reusablePcmBuffer = ByteArray(0)
 
+    @Synchronized
     fun feedPacket(data: ByteArray, ptsUs: Long, isConfig: Boolean) {
         if (released) return
         if (isConfig) {
@@ -63,6 +65,7 @@ class NativeAacRecorder(
         drainEncoder()
     }
 
+    @Synchronized
     fun release() {
         if (released) return
         released = true
@@ -93,9 +96,10 @@ class NativeAacRecorder(
                 else -> null
             } ?: return
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return
-            val codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
+            val codec = createStartedMediaCodec(
+                create = { MediaCodec.createDecoderByType(mime) },
+                configure = { configure(format, null, null, 0) },
+            )
             decoder = codec
             decoderPrepared = true
         }.onFailure {
@@ -115,9 +119,12 @@ class NativeAacRecorder(
             setInteger(MediaFormat.KEY_PCM_ENCODING, PCM_ENCODING)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_ENCODER_INPUT_SIZE)
         }
-        val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
+        val codec = createStartedMediaCodec(
+            create = { MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC) },
+            configure = {
+                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            },
+        )
         encoder = codec
         encoderPrepared = true
     }

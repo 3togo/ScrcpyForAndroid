@@ -341,35 +341,52 @@ class Scrcpy(
             lastStopReason = reason
             Log.i(TAG, "stop(): Stopping scrcpy session (reason=$reason)")
 
-            return@withLock try {
-                session.clearVideoConsumer()
-                session.clearAudioConsumer()
-                mp4Recorder?.release()
-                mp4Recorder = null
-                wavRecorder?.release()
-                wavRecorder = null
-                aacRecorder?.release()
-                aacRecorder = null
-                NativeCoreFacade.onScrcpySessionStopped()
-                session.stop()
-                audioPlayer?.release()
-                audioPlayer = null
-                isRunning = false
-                flexDisplay = false
-                _currentSessionState.value = null
-                stopClipboardSync()
-                if (reason == StopReason.REMOTE_DISCONNECTED) {
-                    logEvent(R.string.vm_session_disconnected, level = Log.WARN)
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastRemoteDisconnectSnackbarAt > 500L) {
-                        lastRemoteDisconnectSnackbarAt = now
-                        AppRuntime.snackbar(R.string.vm_session_disconnected)
-                    }
+            var firstFailure: Throwable? = null
+            suspend fun cleanup(name: String, block: suspend () -> Unit) {
+                try {
+                    block()
+                } catch (error: Throwable) {
+                    if (firstFailure == null) firstFailure = error
+                    Log.w(TAG, "stop(): $name cleanup failed", error)
                 }
+            }
+
+            cleanup("video consumer") { session.clearVideoConsumer() }
+            cleanup("audio consumer") { session.clearAudioConsumer() }
+
+            val currentMp4Recorder = mp4Recorder.also { mp4Recorder = null }
+            cleanup("MP4 recorder") { currentMp4Recorder?.release() }
+            val currentWavRecorder = wavRecorder.also { wavRecorder = null }
+            cleanup("WAV recorder") { currentWavRecorder?.release() }
+            val currentAacRecorder = aacRecorder.also { aacRecorder = null }
+            cleanup("AAC recorder") { currentAacRecorder?.release() }
+
+            cleanup("native renderer") { NativeCoreFacade.onScrcpySessionStopped() }
+            cleanup("transport session") { session.stop() }
+            val currentAudioPlayer = audioPlayer.also { audioPlayer = null }
+            cleanup("audio player") { currentAudioPlayer?.release() }
+            cleanup("clipboard sync") { stopClipboardSync() }
+
+            // State must describe the completed teardown even if an individual native cleanup
+            // reported an error; otherwise callers can neither restart nor retry safely.
+            isRunning = false
+            flexDisplay = false
+            _currentSessionState.value = null
+
+            if (reason == StopReason.REMOTE_DISCONNECTED) {
+                logEvent(R.string.vm_session_disconnected, level = Log.WARN)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastRemoteDisconnectSnackbarAt > 500L) {
+                    lastRemoteDisconnectSnackbarAt = now
+                    AppRuntime.snackbar(R.string.vm_session_disconnected)
+                }
+            }
+
+            if (firstFailure == null) {
                 Log.i(TAG, "stop(): Session stopped successfully")
                 true
-            } catch (e: Exception) {
-                Log.e(TAG, "stop(): Failed to stop session", e)
+            } else {
+                Log.e(TAG, "stop(): Session stopped with cleanup errors", firstFailure)
                 false
             }
         }

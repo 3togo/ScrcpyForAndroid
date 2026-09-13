@@ -133,6 +133,31 @@ class ConnectionControllerTest {
         assertTrue(backend.connected.isEmpty())
     }
 
+    @Test fun handoffPublishesQrThenConnectsToTheAddressThePhoneSent() = runBlocking {
+        backend.handoff = { onPayload ->
+            onPayload("http://172.16.20.143:41234/token")
+            phone
+        }
+        val controller = controller()
+        controller.showDialog(ConnectionDialog.HANDOFF)
+        assertEquals(listOf(phone), backend.connected)
+        assertEquals(phone, store.value.lastEndpoint)
+        assertEquals(ConnectionDialog.NONE, controller.state.value.dialog)
+        assertEquals("", controller.state.value.qrPayload)
+        assertEquals(ConnectionEvent.PLAYBACK, controller.events.first())
+    }
+
+    @Test fun cancellingHandoffLeavesNothingConnected() {
+        backend.handoff = { awaitCancellation() }
+        val controller = controller()
+        controller.showDialog(ConnectionDialog.HANDOFF)
+        assertTrue(controller.state.value.busy)
+        controller.dismissDialog()
+        assertTrue(backend.connected.isEmpty())
+        assertFalse(controller.state.value.busy)
+        assertEquals(ConnectionDialog.NONE, controller.state.value.dialog)
+    }
+
     @Test fun qrRetryCancelsPriorDiscoveryAndGeneratesNewPayload() {
         backend.qrFind = { awaitCancellation() }
         val controller = controller()
@@ -166,6 +191,69 @@ class ConnectionControllerTest {
         controller.setPlayback(options)
         assertEquals(phone, store.value.lastEndpoint)
         assertEquals(options, store.value.playback)
+    }
+
+    @Test fun refreshRemovesUnavailablePhonesAndKeepsTheCurrentSelection() {
+        val tablet = ConnectionEndpoint("172.16.30.110", 40100)
+        store.value = ConnectionPreferences(
+            lastEndpoint = phone,
+            rememberedEndpoints = listOf(phone, tablet),
+        )
+        backend.refreshedDevices = listOf(phone)
+        val controller = controller()
+
+        controller.refreshDevices()
+
+        assertEquals(listOf(phone), store.value.rememberedEndpoints)
+        assertEquals(phone, store.value.lastEndpoint)
+        assertEquals(ConnectionStatus.DEVICES_REMOVED, controller.state.value.status)
+        assertEquals(tablet.toString(), controller.state.value.error)
+    }
+
+    @Test fun successfulConnectionsAreRememberedMostRecentFirst() {
+        val tablet = ConnectionEndpoint("172.16.30.110", 40100)
+        store.value = ConnectionPreferences(
+            lastEndpoint = tablet,
+            rememberedEndpoints = listOf(tablet),
+        )
+        val controller = controller()
+        controller.showDialog(ConnectionDialog.ADDRESS)
+        controller.setAddress(phone.toString())
+        controller.submitAddress()
+
+        assertEquals(listOf(phone, tablet), store.value.rememberedEndpoints)
+        assertEquals(phone, store.value.lastEndpoint)
+    }
+
+    @Test fun refreshAdoptsRotatedPortWithoutRemovingThePhone() {
+        val rotated = phone.copy(port = 45555)
+        store.value = ConnectionPreferences(
+            lastEndpoint = phone,
+            rememberedEndpoints = listOf(phone),
+        )
+        backend.refreshedDevices = listOf(rotated)
+        val controller = controller()
+
+        controller.refreshDevices()
+
+        assertEquals(listOf(rotated), store.value.rememberedEndpoints)
+        assertEquals(rotated, store.value.lastEndpoint)
+        assertEquals(ConnectionStatus.READY, controller.state.value.status)
+        assertNull(controller.state.value.error)
+    }
+
+    @Test fun forgettingTheSelectedPhoneSelectsTheNextRememberedPhone() {
+        val tablet = ConnectionEndpoint("172.16.30.110", 40100)
+        store.value = ConnectionPreferences(
+            lastEndpoint = phone,
+            rememberedEndpoints = listOf(phone, tablet),
+        )
+        val controller = controller()
+
+        controller.forget(phone)
+
+        assertEquals(listOf(tablet), store.value.rememberedEndpoints)
+        assertEquals(tablet, store.value.lastEndpoint)
     }
 
     @Test fun disposeClosesEventChannel() = runBlocking {
@@ -207,8 +295,10 @@ class ConnectionControllerTest {
         var streaming = false
         var disconnects = 0
         var discovered: ConnectionEndpoint? = null
+        var refreshedDevices: List<ConnectionEndpoint>? = null
         var find: (suspend () -> ConnectionEndpoint?)? = null
         var qrFind: suspend () -> ConnectionEndpoint? = { null }
+        var handoff: (suspend ((String) -> Unit) -> ConnectionEndpoint?)? = null
         var connectAction: suspend () -> Unit = { streaming = true }
         var disconnectAction: suspend () -> Unit = {}
         val paired = mutableListOf<ConnectionEndpoint>()
@@ -222,5 +312,8 @@ class ConnectionControllerTest {
         override suspend fun pair(endpoint: ConnectionEndpoint, secret: String): Boolean { paired += endpoint; return true }
         override suspend fun findQrService(name: String) = qrFind()
         override suspend fun findConnection(host: String) = find?.invoke() ?: discovered
+        override suspend fun awaitHandoff(onPayload: (String) -> Unit) = handoff?.invoke(onPayload)
+        override suspend fun refreshDevices(devices: List<ConnectionEndpoint>) =
+            refreshedDevices ?: devices
     }
 }

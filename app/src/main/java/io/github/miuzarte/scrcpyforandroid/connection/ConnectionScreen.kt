@@ -45,16 +45,11 @@ internal fun ConnectionScreen(controller: ConnectionController, remote: Boolean)
 @Composable
 internal fun ConnectionContent(controller: ConnectionController, remote: Boolean) {
     val state by controller.state.collectAsState()
-    val hasDevice = state.preferences.lastEndpoint != null || state.streaming
-    val keys = buildList {
-        if (hasDevice) add("reconnect")
-        add("qr"); add("methods"); add("settings")
-        if (state.streaming) add("disconnect")
-        if (state.busy) add("cancel")
-    }
+    val rememberedDevices = state.preferences.rememberedEndpoints
+    val keys = connectionHomeFocusKeys(rememberedDevices.size, state.streaming, state.busy)
     val focus = rememberFocusChain(keys, remote)
-    var returnFocus by remember { mutableStateOf(if (hasDevice) "reconnect" else "qr") }
-    LaunchedEffect(state.dialog, state.busy) {
+    var returnFocus by remember { mutableStateOf(if (rememberedDevices.isNotEmpty()) "device-0" else "qr") }
+    LaunchedEffect(state.dialog, state.busy, rememberedDevices) {
         if (remote && state.dialog == ConnectionDialog.NONE) focus.requestWhenPlaced(if (state.busy) "cancel" else returnFocus)
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -73,18 +68,53 @@ internal fun ConnectionContent(controller: ConnectionController, remote: Boolean
                 val wide = maxWidth >= 680.dp
                 val devicePanel: @Composable () -> Unit = {
                     Section(stringResource(R.string.main_tab_devices)) {
-                        Text(stringResource(if (hasDevice) R.string.connection_last_device else R.string.connection_add_device),
+                        Text(stringResource(if (rememberedDevices.isNotEmpty()) R.string.connection_saved_devices else R.string.connection_add_device),
                             style = MaterialTheme.typography.headlineSmall)
-                        state.preferences.lastEndpoint?.let {
-                            Text(it.toString(), style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        rememberedDevices.forEachIndexed { index, endpoint ->
+                            val selected = endpoint == state.preferences.lastEndpoint
+                            val endpointLabel = if (selected) {
+                                "$endpoint · ${stringResource(R.string.connection_current_device)}"
+                            } else endpoint.toString()
+                            Text(
+                                endpointLabel,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ActionButton(
+                                    stringResource(
+                                        if (selected && state.streaming) R.string.tv_resume
+                                        else R.string.tv_connect_now,
+                                    ),
+                                    focus.modifier("device-$index").weight(1f),
+                                    enabled = !state.busy,
+                                ) {
+                                    returnFocus = "device-$index"
+                                    controller.reconnect(endpoint)
+                                }
+                                ActionButton(
+                                    stringResource(R.string.connection_forget_device),
+                                    focus.modifier("forget-$index").weight(1f),
+                                    enabled = !state.busy && !(selected && state.streaming),
+                                ) {
+                                    returnFocus = "qr"
+                                    controller.forget(endpoint)
+                                }
+                            }
                         }
-                        if (hasDevice) ActionButton(
-                            stringResource(if (state.streaming) R.string.tv_resume else R.string.tv_reconnect),
-                            focus.modifier("reconnect"), enabled = !state.busy,
-                        ) { returnFocus = "reconnect"; controller.reconnect() }
+                        if (rememberedDevices.isNotEmpty()) ActionButton(
+                            stringResource(R.string.device_refresh),
+                            focus.modifier("refresh"),
+                            enabled = !state.busy,
+                        ) {
+                            returnFocus = "refresh"
+                            controller.refreshDevices()
+                        }
                         ActionButton(stringResource(R.string.tv_qr_start), focus.modifier("qr"), enabled = !state.busy) {
                             returnFocus = "qr"; controller.showDialog(ConnectionDialog.QR)
+                        }
+                        ActionButton(stringResource(R.string.tv_handoff_start), focus.modifier("handoff"), enabled = !state.busy) {
+                            returnFocus = "handoff"; controller.showDialog(ConnectionDialog.HANDOFF)
                         }
                         ActionButton(stringResource(R.string.tv_manual_options), focus.modifier("methods"), enabled = !state.busy) {
                             returnFocus = "methods"; controller.showDialog(ConnectionDialog.METHODS)
@@ -103,7 +133,7 @@ internal fun ConnectionContent(controller: ConnectionController, remote: Boolean
                             returnFocus = "settings"; controller.showDialog(ConnectionDialog.PLAYBACK)
                         }
                         if (state.streaming) ActionButton(stringResource(R.string.tv_disconnect), focus.modifier("disconnect"), enabled = !state.busy) {
-                            returnFocus = "reconnect"; controller.disconnect()
+                            returnFocus = "device-0"; controller.disconnect()
                         }
                         Text(stringResource(R.string.connection_remote_help), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -140,7 +170,8 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
     val custom = state.preferences.playback.aspectRatio == "CUSTOM"
     val keys = when (kind) {
         ConnectionDialog.QR -> listOf("retry", "code", "back")
-        ConnectionDialog.METHODS -> listOf("code", "address", "back")
+        ConnectionDialog.HANDOFF -> listOf("retry", "back")
+        ConnectionDialog.METHODS -> listOf("code", "address", "handoff", "back")
         ConnectionDialog.ADDRESS -> listOf("address", "submit", "qr", "back")
         ConnectionDialog.CODE -> listOf("address", "code", "submit", "qr", "back")
         ConnectionDialog.PLAYBACK -> listOfNotNull("audio", "fill", "ratio", "custom".takeIf { custom }, "back")
@@ -151,7 +182,7 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
     Dialog(onDismissRequest = controller::dismissDialog, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         key(kind) {
             val focus = rememberFocusChain(keys, remote)
-            val first = if (kind == ConnectionDialog.QR) "back" else keys.first()
+            val first = if (kind == ConnectionDialog.QR || kind == ConnectionDialog.HANDOFF) "back" else keys.first()
             val windowFocused = LocalWindowInfo.current.isWindowFocused
             var initialFocusDelivered by remember { mutableStateOf(false) }
             Surface(shape = RoundedCornerShape(24.dp), modifier = Modifier
@@ -160,6 +191,7 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(when (kind) {
                         ConnectionDialog.QR -> R.string.tv_qr_pair
+                        ConnectionDialog.HANDOFF -> R.string.tv_handoff_title
                         ConnectionDialog.CODE -> R.string.tv_code_start
                         ConnectionDialog.ADDRESS -> R.string.tv_address_start
                         ConnectionDialog.PLAYBACK -> R.string.connection_playback_settings
@@ -170,6 +202,7 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                             Text(stringResource(R.string.tv_manual_help))
                             ActionButton(stringResource(R.string.tv_code_start), focus.modifier("code")) { controller.showDialog(ConnectionDialog.CODE) }
                             ActionButton(stringResource(R.string.tv_address_start), focus.modifier("address")) { controller.showDialog(ConnectionDialog.ADDRESS) }
+                            ActionButton(stringResource(R.string.tv_handoff_start), focus.modifier("handoff")) { controller.showDialog(ConnectionDialog.HANDOFF) }
                         }
                         ConnectionDialog.QR -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -184,6 +217,19 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                                     Status(state)
                                     ActionButton(stringResource(R.string.tv_qr_retry), focus.modifier("retry")) { controller.showDialog(ConnectionDialog.QR) }
                                     ActionButton(stringResource(R.string.tv_code_start), focus.modifier("code")) { controller.showDialog(ConnectionDialog.CODE) }
+                                    ActionButton(stringResource(R.string.tv_back), focus.modifier("back"), onClick = controller::dismissDialog)
+                                }
+                            }
+                        }
+                        ConnectionDialog.HANDOFF -> {
+                            // Receiver-side unicast handoff: mDNS does not cross routers, so the TV
+                            // publishes its own server address and the phone pushes its address back.
+                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                                QrImage(state.qrPayload, Modifier.size(if (remote) 220.dp else 140.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(stringResource(R.string.tv_handoff_help))
+                                    Status(state)
+                                    ActionButton(stringResource(R.string.tv_qr_retry), focus.modifier("retry")) { controller.showDialog(ConnectionDialog.HANDOFF) }
                                     ActionButton(stringResource(R.string.tv_back), focus.modifier("back"), onClick = controller::dismissDialog)
                                 }
                             }
@@ -211,7 +257,7 @@ private fun ConnectionDialogContent(state: ConnectionUiState, controller: Connec
                         }
                         else -> Unit
                     }
-                    if (kind != ConnectionDialog.QR) ActionButton(stringResource(R.string.tv_back), focus.modifier("back"), onClick = controller::dismissDialog)
+                    if (kind != ConnectionDialog.QR && kind != ConnectionDialog.HANDOFF) ActionButton(stringResource(R.string.tv_back), focus.modifier("back"), onClick = controller::dismissDialog)
                 }
             }
             LaunchedEffect(windowFocused) {
@@ -234,6 +280,7 @@ private fun Status(state: ConnectionUiState) {
         ConnectionStatus.READY -> when (state.dialog) {
             ConnectionDialog.NONE -> R.string.tv_home_ready
             ConnectionDialog.QR -> R.string.connection_waiting_phone
+            ConnectionDialog.HANDOFF -> R.string.tv_handoff_waiting
             else -> R.string.tv_form_help
         }
         ConnectionStatus.CONNECTING -> R.string.tv_connecting
@@ -247,8 +294,11 @@ private fun Status(state: ConnectionUiState) {
         ConnectionStatus.INVALID_CODE -> R.string.tv_invalid_pairing
         ConnectionStatus.QR_TIMEOUT -> R.string.tv_qr_timeout
         ConnectionStatus.PAIR_FAILED -> R.string.tv_pair_failed
+        ConnectionStatus.REFRESHING -> R.string.connection_refreshing_devices
+        ConnectionStatus.DEVICES_REMOVED -> R.string.connection_devices_removed
         ConnectionStatus.ERROR -> R.string.tv_error
     }, state.error.orEmpty())
     StatusLine(message, state.status in listOf(ConnectionStatus.ERROR, ConnectionStatus.INVALID_ADDRESS,
-        ConnectionStatus.INVALID_CODE, ConnectionStatus.QR_TIMEOUT, ConnectionStatus.PAIR_FAILED))
+        ConnectionStatus.INVALID_CODE, ConnectionStatus.QR_TIMEOUT, ConnectionStatus.PAIR_FAILED,
+        ConnectionStatus.DEVICES_REMOVED))
 }

@@ -10,6 +10,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
+import io.github.togo3.scrcaster.core.DeviceRefresh
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -164,6 +165,19 @@ class UsbAdbDeviceWatcher(
         _devicesFlow.value = devices
         
         Log.i(TAG, "scanConnectedDevices(): found ${devices.size} ADB devices")
+    }
+
+    /**
+     * Reconciles the displayed USB devices with the system's current snapshot.
+     *
+     * Detach broadcasts normally keep the list current, but a manual refresh also removes
+     * stale entries when a broadcast was missed. The removed entries are returned so the UI can
+     * warn the user instead of silently changing the list.
+     */
+    fun refreshConnectedDevices(): List<UsbDeviceInfo> {
+        val previous = _devicesFlow.value
+        scanConnectedDevices()
+        return DeviceRefresh.reconcile(previous, _devicesFlow.value) { it.getUsbAddress() }.removed()
     }
 
     /**

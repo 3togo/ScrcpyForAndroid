@@ -165,6 +165,8 @@ final class Backend implements AutoCloseable {
         } finally { Arrays.fill(secret, '\0'); }
     }
     String run(List<String> command, char[] input, Duration timeout) throws Exception {
+        if (timeout.isZero() || timeout.isNegative())
+            throw new IllegalArgumentException("Command timeout must be positive");
         Process p = start(command);
         AtomicBoolean timedOut = new AtomicBoolean();
         ScheduledFuture<?> deadline = timer.schedule(() -> {

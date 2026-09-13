@@ -50,6 +50,8 @@ public final class BackendTest {
             assert Arrays.equals(code, new char[6]);
             try { backend.adb("fail"); throw new AssertionError("Missing exit error"); }
             catch (java.io.IOException expected) { assert expected.getMessage().contains("7"); }
+            try { backend.run(List.of(fake.toString(), "wait"), null, Duration.ZERO); throw new AssertionError("Accepted zero timeout"); }
+            catch (IllegalArgumentException expected) { }
             long begin = System.nanoTime();
             try { backend.run(List.of(fake.toString(), "wait"), null, Duration.ofMillis(150)); throw new AssertionError("Missing timeout"); }
             catch (java.io.IOException expected) { assert expected.getMessage().contains("timed out"); }

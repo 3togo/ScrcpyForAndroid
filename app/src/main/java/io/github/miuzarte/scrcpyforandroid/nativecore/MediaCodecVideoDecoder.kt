@@ -31,7 +31,7 @@ class MediaCodecVideoDecoder(
     onOutputSizeChanged: ((width: Int, height: Int) -> Unit)? = null,
     onFpsUpdated: ((fps: Float) -> Unit)? = null,
 ) {
-    private val codec: MediaCodec = MediaCodec.createDecoderByType(mimeType)
+    private val codec: MediaCodec
     private val bufferInfo = MediaCodec.BufferInfo()
     private val outputSizeCallback = onOutputSizeChanged
     private val fpsUpdatedCallback = onFpsUpdated
@@ -77,10 +77,11 @@ class MediaCodecVideoDecoder(
             format.setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(pps))
         }
         try {
-            codec.configure(format, outputSurface, null, 0)
-            codec.start()
+            codec = createStartedMediaCodec(
+                create = { MediaCodec.createDecoderByType(mimeType) },
+                configure = { configure(format, outputSurface, null, 0) },
+            )
         } catch (e: Exception) {
-            runCatching { codec.release() }
             codecError = e
             throw DecoderException(mimeType, width, height, e)
         }

@@ -1,5 +1,24 @@
 package io.github.miuzarte.scrcpyforandroid.connection
 
+/** Stable focus order for the dynamic TV home device list. */
+internal fun connectionHomeFocusKeys(
+    deviceCount: Int,
+    streaming: Boolean,
+    busy: Boolean,
+): List<String> = buildList {
+    repeat(deviceCount) { index ->
+        add("device-$index")
+        add("forget-$index")
+    }
+    if (deviceCount > 0) add("refresh")
+    add("qr")
+    add("handoff")
+    add("methods")
+    add("settings")
+    if (streaming) add("disconnect")
+    if (busy) add("cancel")
+}
+
 /**
  * The deterministic part of remote focus traversal.  Keeping this outside Compose
  * lets the order be checked on the JVM; Android still owns the actual focus window.

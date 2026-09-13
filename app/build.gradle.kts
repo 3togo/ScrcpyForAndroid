@@ -80,6 +80,12 @@ android {
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Let pure-JVM unit tests call android.util.Log safely (returns defaults instead of throwing),
+        // so classes with logging can still be covered offline.
+        testOptions {
+            unitTests.isReturnDefaultValues = true
+        }
     }
 
     splits {

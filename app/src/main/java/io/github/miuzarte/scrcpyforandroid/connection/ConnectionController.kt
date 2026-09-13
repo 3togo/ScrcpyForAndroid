@@ -1,5 +1,6 @@
 package io.github.miuzarte.scrcpyforandroid.connection
 
+import io.github.togo3.scrcaster.core.DeviceRefresh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,13 +36,15 @@ internal data class PlaybackPreferences(
 
 internal data class ConnectionPreferences(
     val lastEndpoint: ConnectionEndpoint? = null,
+    val rememberedEndpoints: List<ConnectionEndpoint> = listOfNotNull(lastEndpoint),
     val playback: PlaybackPreferences = PlaybackPreferences(),
 )
 
-internal enum class ConnectionDialog { NONE, METHODS, ADDRESS, CODE, QR, PLAYBACK }
+internal enum class ConnectionDialog { NONE, METHODS, ADDRESS, CODE, QR, HANDOFF, PLAYBACK }
 internal enum class ConnectionStatus {
     READY, CONNECTING, CONNECTED, DISCONNECTED, PAIRING, FINDING_PORT, PAIRED,
-    PAIR_REQUIRED, INVALID_ADDRESS, INVALID_CODE, QR_TIMEOUT, PAIR_FAILED, ERROR,
+    PAIR_REQUIRED, INVALID_ADDRESS, INVALID_CODE, QR_TIMEOUT, PAIR_FAILED,
+    REFRESHING, DEVICES_REMOVED, ERROR,
 }
 
 internal data class ConnectionUiState(
@@ -80,6 +83,14 @@ internal interface PairingConnectionBackend : ConnectionBackend {
     suspend fun pair(endpoint: ConnectionEndpoint, secret: String): Boolean
     suspend fun findQrService(name: String): ConnectionEndpoint?
     suspend fun findConnection(host: String): ConnectionEndpoint?
+    suspend fun refreshDevices(devices: List<ConnectionEndpoint>): List<ConnectionEndpoint> = devices
+
+    /**
+     * Serves a one-shot unicast handoff for the "receive address via QR" flow: publishes the QR
+     * text through [onPayload] and returns the endpoint the phone sent back, or null when the
+     * session is cancelled. The default means "unsupported" so platform-neutral fakes need no change.
+     */
+    suspend fun awaitHandoff(onPayload: (String) -> Unit): ConnectionEndpoint? = null
 }
 
 internal interface ConnectionPreferencesStore {
@@ -125,7 +136,11 @@ internal class ConnectionController(
                 status = ConnectionStatus.READY,
                 address = if (dialog == ConnectionDialog.ADDRESS) it.preferences.lastEndpoint?.toString().orEmpty() else "",
             ) }
-            if (dialog == ConnectionDialog.QR) perform { pairQr() }
+            when (dialog) {
+                ConnectionDialog.QR -> perform { pairQr() }
+                ConnectionDialog.HANDOFF -> perform { handoff() }
+                else -> Unit
+            }
         }
     }
 
@@ -176,6 +191,54 @@ internal class ConnectionController(
         connect(endpoint)
     }
 
+    fun reconnect(endpoint: ConnectionEndpoint) {
+        if (state.value.busy) return
+        if (backend.isStreaming() && endpoint == state.value.preferences.lastEndpoint) {
+            eventChannel.trySend(ConnectionEvent.PLAYBACK)
+        } else {
+            connect(endpoint)
+        }
+    }
+
+    fun forget(endpoint: ConnectionEndpoint) {
+        if (state.value.busy) return
+        val old = state.value.preferences
+        val remembered = old.rememberedEndpoints.filterNot { it == endpoint }
+        val selected = old.lastEndpoint?.takeIf { it in remembered } ?: remembered.firstOrNull()
+        val preferences = old.copy(lastEndpoint = selected, rememberedEndpoints = remembered)
+        store.save(preferences)
+        mutableState.update { it.copy(preferences = preferences, status = ConnectionStatus.READY, error = null) }
+    }
+
+    fun refreshDevices() {
+        if (state.value.busy) return
+        operation = scope.launch { perform {
+            mutableState.update { it.copy(status = ConnectionStatus.REFRESHING) }
+            val previous = state.value.preferences.rememberedEndpoints
+            val discovered = backend.refreshDevices(previous)
+            val refresh = DeviceRefresh.reconcile(previous, discovered) { it.host }
+            val old = state.value.preferences
+            val selected = old.lastEndpoint?.host?.let { host ->
+                refresh.devices().firstOrNull { it.host == host }
+            } ?: refresh.devices().firstOrNull()
+            val preferences = old.copy(
+                lastEndpoint = selected,
+                rememberedEndpoints = refresh.devices(),
+            )
+            store.save(preferences)
+            mutableState.update {
+                it.copy(
+                    preferences = preferences,
+                    status = if (refresh.removed().isEmpty()) {
+                        if (backend.isStreaming()) ConnectionStatus.CONNECTED else ConnectionStatus.READY
+                    } else ConnectionStatus.DEVICES_REMOVED,
+                    error = refresh.removed().joinToString { endpoint -> endpoint.toString() }
+                        .ifBlank { null },
+                )
+            }
+        } }
+    }
+
     /**
      * Starts the shared keep-alive loop after a successful (re)connect so a dropped scrcpy
      * session is restored automatically. The phone layout drives the same [ConnectionKeepAlive]
@@ -205,7 +268,15 @@ internal class ConnectionController(
         try {
             backend.connect(endpoint, state.value.preferences.playback)
             coroutineContext.ensureActive()
-            val preferences = state.value.preferences.copy(lastEndpoint = endpoint)
+            val oldPreferences = state.value.preferences
+            val remembered = buildList {
+                add(endpoint)
+                addAll(oldPreferences.rememberedEndpoints.filterNot { it.host == endpoint.host })
+            }
+            val preferences = oldPreferences.copy(
+                lastEndpoint = endpoint,
+                rememberedEndpoints = remembered,
+            )
             store.save(preferences)
             mutableState.update { it.copy(preferences = preferences, streaming = true,
                 status = ConnectionStatus.CONNECTED, dialog = ConnectionDialog.NONE, pairingCode = "", qrPayload = "") }
@@ -243,6 +314,18 @@ internal class ConnectionController(
             finishPairing(result.host, result.connection?.let { ConnectionEndpoint(it.first, it.second) })
     }
 
+    /**
+     * Receiver-side unicast handoff: publish our QR, wait for the phone to push its address and
+     * connect. Unlike [pairQr] this needs no mDNS, so it also works when the phone sits on a
+     * different subnet than the TV.
+     */
+    private suspend fun handoff() {
+        val endpoint = backend.awaitHandoff { payload ->
+            mutableState.update { it.copy(qrPayload = payload) }
+        }
+        if (endpoint != null) startStream(endpoint)
+    }
+
     private suspend fun afterPairing(host: String) {
         coroutineContext.ensureActive()
         mutableState.update { it.copy(status = ConnectionStatus.FINDING_PORT) }
@@ -278,7 +361,9 @@ internal class ConnectionController(
     }
 
     fun stopPairing() {
-        if (state.value.dialog in setOf(ConnectionDialog.QR, ConnectionDialog.CODE)) dismissDialog()
+        if (state.value.dialog in setOf(ConnectionDialog.QR, ConnectionDialog.CODE, ConnectionDialog.HANDOFF)) {
+            dismissDialog()
+        }
     }
 
         fun dispose() {

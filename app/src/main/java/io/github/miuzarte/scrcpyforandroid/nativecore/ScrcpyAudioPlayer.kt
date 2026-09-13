@@ -40,6 +40,7 @@ class ScrcpyAudioPlayer(
     private var released = false
     private var packetCount = 0L
 
+    @Synchronized
     fun feedPacket(data: ByteArray, ptsUs: Long, isConfig: Boolean) {
         if (released) return
         applyAudioThreadPriorityIfNeeded()
@@ -143,15 +144,24 @@ class ScrcpyAudioPlayer(
      * - Called once when a config packet is received for codec formats.
      */
     private fun startCodecAndTrack(format: MediaFormat) {
-        val mime = format.getString(MediaFormat.KEY_MIME)!!
+        val mime = requireNotNull(format.getString(MediaFormat.KEY_MIME)) {
+            "Audio format has no MIME type"
+        }
         val codec = MediaCodec.createDecoderByType(mime)
-        codec.configure(format, null, null, 0)
-        val track = buildAudioTrack()
-        codec.start()
-        track.play()
-        mediaCodec = codec
-        audioTrack = track
-        prepared = true
+        var track: AudioTrack? = null
+        try {
+            codec.configure(format, null, null, 0)
+            track = buildAudioTrack()
+            codec.start()
+            track.play()
+            mediaCodec = codec
+            audioTrack = track
+            prepared = true
+        } catch (error: Throwable) {
+            runCatching { codec.release() }
+            runCatching { track?.release() }
+            throw error
+        }
         Log.i(TAG, "audio player started: mime=$mime sampleRate=$SAMPLE_RATE ch=$CHANNELS")
     }
 
@@ -159,9 +169,14 @@ class ScrcpyAudioPlayer(
         if (released) return null
         if (audioTrack == null) {
             val track = buildAudioTrack()
-            track.play()
-            audioTrack = track
-            prepared = true
+            try {
+                track.play()
+                audioTrack = track
+                prepared = true
+            } catch (error: Throwable) {
+                runCatching { track.release() }
+                throw error
+            }
         }
         return audioTrack
     }
@@ -260,6 +275,7 @@ class ScrcpyAudioPlayer(
     /**
      * Release media and audio resources. Safe to call from any thread.
      */
+    @Synchronized
     fun release() {
         if (released) return
         released = true

@@ -2,6 +2,7 @@ package io.github.miuzarte.scrcpyforandroid.pages
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -9,9 +10,12 @@ import androidx.lifecycle.viewModelScope
 import io.github.miuzarte.scrcpyforandroid.R
 import io.github.miuzarte.scrcpyforandroid.StreamActivity
 import io.github.miuzarte.scrcpyforandroid.connection.ConnectionStatus
+import io.github.miuzarte.scrcpyforandroid.connection.HandoffOutcome
+import io.github.miuzarte.scrcpyforandroid.connection.HandoffTarget
 import io.github.miuzarte.scrcpyforandroid.connection.QrPairingResult
 import io.github.miuzarte.scrcpyforandroid.connection.QrPairingTransport
 import io.github.miuzarte.scrcpyforandroid.connection.QrPairingUiState
+import io.github.miuzarte.scrcpyforandroid.connection.ReceiverHandoff
 import io.github.miuzarte.scrcpyforandroid.connection.runQrPairing
 import io.github.miuzarte.scrcpyforandroid.connection.runQrPairingWith
 import io.github.miuzarte.scrcpyforandroid.models.ConnectionTarget
@@ -1034,6 +1038,9 @@ internal class DeviceTabViewModel(
     // 反向扫码触发的配对任务, 与展示二维码的任务互斥, 避免两个 mDNS 监听同时跑
     private var scannedQrPairingJob: Job? = null
 
+    // TV 接收端交接 (扫码回传本机地址) 任务
+    private var receiverHandoffJob: Job? = null
+
     /**
      * 展示二维码等待对端设备扫描。扫描后对端 adbd 会以二维码中的服务名广播其配对服务,
      * 本端发现后作为 adb 客户端完成配对, 再查找独立的连接端口并连接。
@@ -1208,7 +1215,40 @@ internal class DeviceTabViewModel(
                 startScannedQrPairing(scanned.name, scanned.secret)
             }
 
+            is ScannedQr.Handoff -> startReceiverHandoff(scanned.target)
+
             is ScannedQr.Text -> AppRuntime.snackbar(R.string.device_scan_qr_unknown)
+        }
+    }
+
+    /**
+     * TV 接收端的"扫码接收地址"流程: 手机扫到 TV 展示的交接地址后, [ReceiverHandoff] 会用本机
+     * mDNS 自发现读出自己的无线调试连接端口, 再把 `host:port` 回传给 TV。全程单播, 因此在手机
+     * 与 TV 跨网段、mDNS 不通时仍然可用。
+     */
+    private fun startReceiverHandoff(target: HandoffTarget) {
+        receiverHandoffJob?.cancel()
+        receiverHandoffJob = viewModelScope.launch {
+            AppRuntime.snackbar(R.string.device_handoff_sending)
+            when (ReceiverHandoff.send(target)) {
+                HandoffOutcome.SENT -> AppRuntime.snackbar(R.string.device_handoff_sent)
+                HandoffOutcome.NO_PORT -> {
+                    // 个别 ROM 的 NsdManager 看不到本机服务; 退回 TV 的网页表单让用户手填一次
+                    AppRuntime.snackbar(R.string.device_handoff_no_port)
+                    openHandoffPage(target)
+                }
+                HandoffOutcome.UNREACHABLE -> AppRuntime.snackbar(R.string.device_handoff_failed)
+            }
+        }
+    }
+
+    /** 打开 TV 交接服务器的网页表单, 作为自动发现失败时的手动后备路径。 */
+    private fun openHandoffPage(target: HandoffTarget) {
+        runCatching {
+            AppRuntime.context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(target.payload))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         }
     }
 

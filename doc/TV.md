@@ -3,14 +3,14 @@
 The TV launcher opens the shared Compose connection screen in remote mode. The
 regular launcher also selects this screen when Android reports a television/Leanback
 device. The home groups **Devices** and **Settings**, uses the same saved color
-palette and language as the phone interface, and displays the last phone address.
+palette and language as the phone interface, and displays remembered phone addresses.
 The existing phone interface remains the phone entry point during this first
 stage of the migration.
 
 ## Shared connection architecture
 
 - `connection/ConnectionController.kt` owns pairing, connection, cancellation,
-  errors, successful endpoint persistence, and playback events. It has no Activity
+  errors, multi-endpoint persistence, refresh reconciliation, and playback events. It has no Activity
   or UI dependencies; the backend and preference store are injectable.
 - `connection/AndroidConnectionBackend.kt` adapts the existing ADB coordinator,
   mDNS discovery, scrcpy session and screen-on policy. The preference adapter keeps
@@ -42,9 +42,13 @@ file manager, or profile editor with the receiver home.
   enter `IP address:port` from the main Wireless debugging screen. This also
   supports a USB-authorized legacy `phone-IP:5555` endpoint.
 
-The home screen remembers the last successfully connected phone and reconnects
-on a fresh launch. Failed attempts do not overwrite it. No address fields
-are shown for QR setup. A failed connection-port lookup opens the address form.
+The home screen remembers successfully connected phones, lists the most recent first,
+and reconnects the selected phone on a fresh launch. Each entry can be connected or
+forgotten. **Refresh devices** probes the saved address and uses mDNS to recover a
+rotated wireless-debugging port; unavailable entries are removed with a warning.
+Existing single-phone preferences migrate into this list. Failed connection attempts
+do not overwrite it. No address fields are shown for QR setup. A failed connection-port
+lookup opens the address form.
 
 **Playback settings** groups audio, fullscreen fill and aspect ratio, including
 custom ratios. These values persist immediately and apply on the next connection.
@@ -63,16 +67,17 @@ Existing playback-menu picture controls remain available during a session.
 - TV volume keys remain local.
 
 Certificate rejection opens the QR pairing dialog automatically. Other pairing
-and connection failures are shown on screen and can be retried. The last
-connection address, port, and audio selection are remembered. Picture-in-picture
+and connection failures are shown on screen and can be retried. Phone connection
+addresses, the selected phone, and audio selection are remembered. Picture-in-picture
 and source-driven portrait rotation are disabled on TVs.
 
-## Manual validation
+## Validation
 
-On an Android TV, verify launcher discovery, visible focus and D-pad access to
-all fields/buttons, pairing, failed-connection retry, portrait and landscape
-streams, audio, Back/Menu access, disconnect and reconnect. Verify normal phone
-launch still opens the upstream interface. Do not interpret a successful APK
+Unit tests are the acceptance baseline for device reconciliation, multi-device
+persistence, rotated-port refresh, removal warnings, and deterministic D-pad focus
+order. A physical Android TV check is optional compatibility validation for launcher
+discovery, vendor-specific focus rendering, video/audio hardware behavior, and remote
+key delivery; it is not a substitute for those tests. Do not interpret a successful APK
 build as proof that a source app handles D-pad input.
 
 ## Testing strategy for the Compose migration

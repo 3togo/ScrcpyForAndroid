@@ -1,5 +1,8 @@
 package io.github.miuzarte.scrcpyforandroid.scan
 
+import io.github.miuzarte.scrcpyforandroid.connection.HandoffTarget
+import io.github.miuzarte.scrcpyforandroid.connection.parseHandoffTarget
+
 /**
  * 摄像头扫码得到的二维码内容分类。
  *
@@ -17,6 +20,14 @@ internal sealed class ScannedQr {
 
     /** 明文无线调试地址 `host:port` / `[ipv6]:port`, 可直接用于连接。 */
     data class Address(val host: String, val port: Int) : ScannedQr()
+
+    /**
+     * TV 接收端的"扫码接收地址"载荷 `http://tv:port/token`。
+     *
+     * TV 无摄像头、mDNS 又不能跨网段, 因此由 TV 起一个单播服务器并展示该地址; 手机扫码后把
+     * 本机的无线调试 `host:port` 回传过去, 绕过 mDNS。
+     */
+    data class Handoff(val target: HandoffTarget) : ScannedQr()
 
     /** 无法识别的文本, 原样保留给用户判断。 */
     data class Text(val value: String) : ScannedQr()
@@ -67,9 +78,10 @@ private fun parseAddress(text: String): ScannedQr.Address? {
     return ScannedQr.Address(host, port)
 }
 
-/** 分类扫描结果; 顺序即优先级: 配对载荷 > 地址 > 其他文本。 */
+/** 分类扫描结果; 顺序即优先级: 接收端交接 URL > 配对载荷 > 地址 > 其他文本。 */
 internal fun classifyScannedQr(raw: String): ScannedQr {
     val text = raw.trim()
     if (text.isEmpty()) return ScannedQr.Text(text)
+    parseHandoffTarget(text)?.let { return ScannedQr.Handoff(it) }
     return parseAdbPairing(text) ?: parseAddress(text) ?: ScannedQr.Text(text)
 }

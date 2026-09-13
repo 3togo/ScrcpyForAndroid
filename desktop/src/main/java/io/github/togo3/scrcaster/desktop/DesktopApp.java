@@ -2,6 +2,7 @@ package io.github.togo3.scrcaster.desktop;
 
 import javax.swing.*;
 import io.github.togo3.scrcaster.core.AspectRatio;
+import io.github.togo3.scrcaster.core.DeviceRefresh;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
@@ -194,14 +195,19 @@ public final class DesktopApp {
         });
     }
     private void loadDevices() throws Exception {
-        loadDevices(null);
+        loadDevices(null, false);
     }
     private void loadDevices(String preferredSerial) throws Exception {
+        loadDevices(preferredSerial, false);
+    }
+    private void loadDevices(String preferredSerial, boolean warnAboutRemovedDevices) throws Exception {
         List<Backend.Device> found = Backend.parseDevices(backend.adb("devices", "-l"));
         SwingUtilities.invokeLater(() -> {
             Backend.Device previous = deviceList.getSelectedValue();
+            DeviceRefresh.Result<Backend.Device> refresh = DeviceRefresh.reconcile(
+                java.util.Collections.list(devices.elements()), found, Backend.Device::serial);
             devices.clear();
-            found.forEach(devices::addElement);
+            refresh.devices().forEach(devices::addElement);
             int selection = preferredSerial == null ? 0 : -1;
             String target = preferredSerial;
             if (target == null && previous != null) target = previous.serial();
@@ -210,9 +216,24 @@ public final class DesktopApp {
             if (!found.isEmpty() && selection >= 0) deviceList.setSelectedIndex(selection);
             else if (!found.isEmpty()) deviceList.clearSelection();
             else append("No devices found. Connect with USB and authorize debugging, or enter a wireless address.");
+            if (warnAboutRemovedDevices && !refresh.removed().isEmpty())
+                warnAboutRemovedDevices(refresh.removed());
         });
     }
-    private void refresh() { task("Refreshing devices", this::loadDevices); }
+    private void warnAboutRemovedDevices(List<Backend.Device> removed) {
+        StringBuilder message = new StringBuilder("The following device");
+        message.append(removed.size() == 1 ? " is" : "s are");
+        message.append(" no longer available and ");
+        message.append(removed.size() == 1 ? "was" : "were");
+        message.append(" removed:\n");
+        for (Backend.Device device : removed) {
+            String detail = device.model() + " (" + device.serial() + ")";
+            message.append("\n• ").append(detail);
+            append("Warning: Device no longer available; removed " + detail + ".");
+        }
+        JOptionPane.showMessageDialog(frame, message.toString(), "Device removed", JOptionPane.WARNING_MESSAGE);
+    }
+    private void refresh() { task("Refreshing devices", () -> loadDevices(null, true)); }
     private void connect() {
         String endpoint = Backend.endpoint(address.getText());
         prefs.put("address", endpoint);
@@ -336,7 +357,7 @@ public final class DesktopApp {
                 backend.stop(p);
                 stream = null;
                 SwingUtilities.invokeLater(this::updateActions);
-                if (rejected.get()) {
+                if (!closing && rejected.get()) {
                     Backend.Options plain = new Backend.Options(options.size(), options.fps(), options.bitrate(),
                         options.audio(), options.control(), options.fullscreen(), options.fill(), "", false,
                         options.recording());

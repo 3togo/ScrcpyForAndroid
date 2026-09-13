@@ -7,6 +7,7 @@ import android.media.MediaMuxer
 import android.util.Log
 import android.view.Surface
 import io.github.miuzarte.scrcpyforandroid.NativeCoreFacade
+import io.github.miuzarte.scrcpyforandroid.nativecore.createStartedMediaCodec
 import io.github.miuzarte.scrcpyforandroid.scrcpy.Shared.Codec
 import java.io.File
 import java.nio.ByteBuffer
@@ -181,11 +182,18 @@ class NativeMp4Recorder(
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL)
             }
             val codec = MediaCodec.createEncoderByType(VIDEO_MIME)
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            val surface = codec.createInputSurface()
-            codec.start()
-            videoEncoder = codec
-            videoInputSurface = surface
+            var surface: Surface? = null
+            try {
+                codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                surface = codec.createInputSurface()
+                codec.start()
+                videoEncoder = codec
+                videoInputSurface = surface
+            } catch (error: Throwable) {
+                runCatching { surface?.release() }
+                runCatching { codec.release() }
+                throw error
+            }
         }
     }
 
@@ -199,9 +207,10 @@ class NativeMp4Recorder(
                 else -> null
             } ?: return
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return
-            val codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
+            val codec = createStartedMediaCodec(
+                create = { MediaCodec.createDecoderByType(mime) },
+                configure = { configure(format, null, null, 0) },
+            )
             audioDecoder = codec
             audioDecoderPrepared = true
         }.onFailure {
@@ -221,9 +230,12 @@ class NativeMp4Recorder(
             setInteger(MediaFormat.KEY_PCM_ENCODING, PCM_ENCODING)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_AUDIO_ENCODER_INPUT_SIZE)
         }
-        val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
+        val codec = createStartedMediaCodec(
+            create = { MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC) },
+            configure = {
+                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            },
+        )
         audioEncoder = codec
         audioEncoderPrepared = true
     }

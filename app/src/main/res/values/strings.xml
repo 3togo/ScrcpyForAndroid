@@ -79,6 +79,9 @@
     <string name="device_menu_quick_sort">Quick device sort</string>
     <string name="device_menu_virtual_button_sort">Virtual button order</string>
     <string name="device_menu_clear_logs">Clear logs</string>
+    <string name="device_refresh">Refresh devices</string>
+    <string name="device_refresh_complete">Device list refreshed</string>
+    <string name="device_refresh_removed">Warning: no longer available and removed: %1$s</string>
     <string name="device_hint_long_press_edit">Long press to edit</string>
     <string name="device_cannot_modify_connected">Cannot modify a connected device</string>
     <string name="device_added">Device added: %1$s:%2$s</string>
@@ -111,6 +114,10 @@
     <string name="device_scan_qr_pairing_fallback">Could not pair with the scanned code. Opening system settings; you can also use the pairing code.</string>
     <string name="device_scan_qr_pairing_started">Pairing with the scanned device…</string>
     <string name="device_scan_qr_pairing_unsupported">Could not open a system settings page. Open Developer options → Wireless debugging manually, or use the pairing code.</string>
+    <string name="device_handoff_sending">Sending this phone’s Wireless debugging address to the TV…</string>
+    <string name="device_handoff_sent">Address sent. The TV is connecting…</string>
+    <string name="device_handoff_no_port">Could not read this phone’s Wireless debugging port. Opening the receiver page to enter it manually; alternatively turn Wireless debugging on and retry.</string>
+    <string name="device_handoff_failed">Could not reach the TV receiver. Keep its QR screen open, then scan again.</string>
     <string name="vm_scan_qr_pairing">Scanned an adb pairing QR for service %1$s</string>
     <string name="device_quick_connect_title">Connect / Add device</string>
     <string name="device_status_mirroring">Mirroring</string>

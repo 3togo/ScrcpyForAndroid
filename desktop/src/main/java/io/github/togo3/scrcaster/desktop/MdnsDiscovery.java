@@ -52,6 +52,7 @@ final class MdnsDiscovery implements QrPairing.Discovery {
     @Override public List<QrPairing.Service> services() { return found.values().stream().flatMap(List::stream).distinct().toList(); }
     private static void closeAsync(JmDNS client) {
         Thread closer = new Thread(() -> { try { client.close(); } catch (IOException ignored) { } }, "mdns-close");
+        closer.setDaemon(true);
         closer.start(); // Closing multicast sockets may block; never block Swing's event thread.
     }
     @Override public synchronized void close() {

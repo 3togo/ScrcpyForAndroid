@@ -178,6 +178,7 @@ private fun CameraPreview(
         if (!active) return@LaunchedEffect
 
         val consumed = AtomicBoolean(false)
+        val acceptingResults = AtomicBoolean(true)
         val loggedFrame = AtomicBoolean(false)
         val executor = Executors.newSingleThreadExecutor()
         val reader = MultiFormatReader().apply {
@@ -215,16 +216,21 @@ private fun CameraPreview(
                 .build()
                 .also { useCase ->
                     useCase.setAnalyzer(executor) { image ->
-                        if (loggedFrame.compareAndSet(false, true)) {
-                            Log.i(TAG, "first analysis frame ${image.width}x${image.height}")
+                        val text = try {
+                            if (loggedFrame.compareAndSet(false, true)) {
+                                Log.i(TAG, "first analysis frame ${image.width}x${image.height}")
+                            }
+                            if (consumed.get()) null else decodeQr(reader, image)
+                        } finally {
+                            image.close()
                         }
-                        val text = if (consumed.get()) null else decodeQr(reader, image)
-                        image.close()
                         if (!text.isNullOrEmpty() && consumed.compareAndSet(false, true)) {
                             // 只记长度与前缀: 配对码载荷含密钥, 不得写入日志
                             Log.i(TAG, "decoded ${text.length} chars, starts with ${text.take(5)}")
                             // 分析线程无协程, 借 View.post 回主线程派发结果
-                            previewView.post { onScannedLatest(text) }
+                            previewView.post {
+                                if (acceptingResults.get()) onScannedLatest(text)
+                            }
                         }
                     }
                 }
@@ -244,10 +250,11 @@ private fun CameraPreview(
             Log.i(TAG, "camera bound, preview ${previewView.width}x${previewView.height}")
             awaitCancellation()
         } finally {
+            acceptingResults.set(false)
             withContext(NonCancellable) {
                 runCatching { provider?.unbindAll() }
             }
-            executor.shutdown()
+            executor.shutdownNow()
         }
     }
 }
@@ -259,7 +266,10 @@ private suspend fun cameraProvider(context: Context): ProcessCameraProvider =
             val result = runCatching { future.get() }
             if (!continuation.isActive) return@addListener
             result.getOrNull()?.let { continuation.resume(it) }
-                ?: continuation.resumeWithException(result.exceptionOrNull()!!)
+                ?: continuation.resumeWithException(
+                    result.exceptionOrNull()
+                        ?: IllegalStateException("Camera provider returned no instance"),
+                )
         }, ContextCompat.getMainExecutor(context))
     }
 

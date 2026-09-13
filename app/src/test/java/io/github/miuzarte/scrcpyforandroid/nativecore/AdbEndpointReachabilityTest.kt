@@ -18,4 +18,10 @@ class AdbEndpointReachabilityTest {
 
         assertFalse(isReachableAdbEndpoint("127.0.0.1", port, 500))
     }
+
+    @Test
+    fun rejectsInvalidEndpointArgumentsWithoutCrashing() {
+        assertFalse(isReachableAdbEndpoint("127.0.0.1", -1, 500))
+        assertFalse(isReachableAdbEndpoint("127.0.0.1", 5555, -1))
+    }
 }

@@ -18,15 +18,15 @@ object AppScreenOn {
     }
 
     fun acquire() = synchronized(this) {
-        if (keepScreenOnEnabled) Unit
+        if (keepScreenOnEnabled) return@synchronized
         keepScreenOnEnabled = true
-        windows.forEach { applyKeepScreenOn(window = it, enabled = keepScreenOnEnabled) }
+        windows.forEach { applyKeepScreenOn(window = it, enabled = true) }
     }
 
     fun release() = synchronized(this) {
-        if (!keepScreenOnEnabled) Unit
+        if (!keepScreenOnEnabled) return@synchronized
         keepScreenOnEnabled = false
-        windows.forEach { applyKeepScreenOn(window = it, enabled = keepScreenOnEnabled) }
+        windows.forEach { applyKeepScreenOn(window = it, enabled = false) }
     }
 
     private fun applyKeepScreenOn(window: Window, enabled: Boolean) =
